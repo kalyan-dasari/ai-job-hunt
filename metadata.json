@@ -1,0 +1,6 @@
+{
+  "name": "JobPilot AI",
+  "description": "AI-powered job hunting platform for discovering legitimate opportunities, verifying authenticity, matching resumes, and preparing verified applications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
