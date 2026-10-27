@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import pdf from 'pdf-parse';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
   initialCandidateProfile,
@@ -102,6 +103,146 @@ function calculateDeterministicMatch(profile: CandidateProfile, job: Job): Match
   };
 }
 
+function hasValidGeminiKey(): boolean {
+  const key = process.env.GEMINI_API_KEY;
+  return Boolean(key && key.trim().length > 15 && key !== 'MY_GEMINI_API_KEY');
+}
+
+// Deterministic resume parser when Gemini is unavailable, offline, or rate-limited
+function parseResumeDeterministic(resumeText: string, fileName?: string): Partial<CandidateProfile> {
+  const lines = resumeText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  // 1. Email extraction
+  const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const email = emailMatch ? emailMatch[0] : '';
+
+  // 2. Phone extraction
+  const phoneMatch = resumeText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,13}/);
+  const phone = phoneMatch ? phoneMatch[0] : '';
+
+  // 3. Name extraction
+  let name = '';
+  const ignoredKeywords = [
+    'resume', 'curriculum', 'vitae', 'cv', 'profile', 'summary', 'contact', 'page',
+    'phone', 'email', 'experience', 'education', 'skills', 'objective', 'overview',
+  ];
+  for (const line of lines.slice(0, 12)) {
+    const clean = line.replace(/[^a-zA-Z\s]/g, '').trim();
+    const words = clean.split(/\s+/).filter(Boolean);
+    const lower = clean.toLowerCase();
+    const hasIgnored = ignoredKeywords.some((w) => lower.includes(w));
+    if (!hasIgnored && words.length >= 2 && words.length <= 4 && !line.includes('@') && !line.includes('http')) {
+      name = clean;
+      break;
+    }
+  }
+  if (!name && fileName) {
+    const cleanFile = fileName
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[-_]/g, ' ')
+      .replace(/\b(resume|cv|profile|updated|final|latest)\b/gi, '')
+      .trim();
+    if (cleanFile.length > 2) name = cleanFile;
+  }
+
+  // 4. Skills extraction
+  const skillCatalog: Record<string, { category: 'languages' | 'frameworks' | 'cloudDevops' | 'tools'; canonical: string; patterns: RegExp[] }> = {
+    // Languages
+    javascript: { category: 'languages', canonical: 'JavaScript', patterns: [/\bjavascript\b/i, /\bjs\b/i] },
+    typescript: { category: 'languages', canonical: 'TypeScript', patterns: [/\btypescript\b/i, /\bts\b/i] },
+    python: { category: 'languages', canonical: 'Python', patterns: [/\bpython\b/i] },
+    java: { category: 'languages', canonical: 'Java', patterns: [/\bjava\b/i] },
+    csharp: { category: 'languages', canonical: 'C#', patterns: [/\bc#\b/i] },
+    cpp: { category: 'languages', canonical: 'C++', patterns: [/\bc\+\+\b/i] },
+    golang: { category: 'languages', canonical: 'Go', patterns: [/\bgolang\b/i, /\bgo\b/i] },
+    rust: { category: 'languages', canonical: 'Rust', patterns: [/\brust\b/i] },
+    ruby: { category: 'languages', canonical: 'Ruby', patterns: [/\bruby\b/i] },
+    php: { category: 'languages', canonical: 'PHP', patterns: [/\bphp\b/i] },
+    swift: { category: 'languages', canonical: 'Swift', patterns: [/\bswift\b/i] },
+    kotlin: { category: 'languages', canonical: 'Kotlin', patterns: [/\bkotlin\b/i] },
+    sql: { category: 'languages', canonical: 'SQL', patterns: [/\bsql\b/i] },
+    html: { category: 'languages', canonical: 'HTML5', patterns: [/\bhtml5?\b/i] },
+    css: { category: 'languages', canonical: 'CSS3', patterns: [/\bcss3?\b/i] },
+
+    // Frameworks
+    react: { category: 'frameworks', canonical: 'React', patterns: [/\breact(\.js)?\b/i] },
+    reactnative: { category: 'frameworks', canonical: 'React Native', patterns: [/\breact\s+native\b/i] },
+    nextjs: { category: 'frameworks', canonical: 'Next.js', patterns: [/\bnext(\.js)?\b/i] },
+    vue: { category: 'frameworks', canonical: 'Vue.js', patterns: [/\bvue(\.js)?\b/i] },
+    angular: { category: 'frameworks', canonical: 'Angular', patterns: [/\bangular\b/i] },
+    nodejs: { category: 'frameworks', canonical: 'Node.js', patterns: [/\bnode(\.js)?\b/i] },
+    express: { category: 'frameworks', canonical: 'Express', patterns: [/\bexpress(\.js)?\b/i] },
+    django: { category: 'frameworks', canonical: 'Django', patterns: [/\bdjango\b/i] },
+    flask: { category: 'frameworks', canonical: 'Flask', patterns: [/\bflask\b/i] },
+    fastapi: { category: 'frameworks', canonical: 'FastAPI', patterns: [/\bfastapi\b/i] },
+    springboot: { category: 'frameworks', canonical: 'Spring Boot', patterns: [/\bspring(\s*boot)?\b/i] },
+    nestjs: { category: 'frameworks', canonical: 'NestJS', patterns: [/\bnest(\.js)?\b/i] },
+    tailwind: { category: 'frameworks', canonical: 'Tailwind CSS', patterns: [/\btailwind(\s*css)?\b/i] },
+    graphql: { category: 'frameworks', canonical: 'GraphQL', patterns: [/\bgraphql\b/i] },
+    restapi: { category: 'frameworks', canonical: 'REST APIs', patterns: [/\brest(ful)?\s*(api|apis)?\b/i] },
+
+    // Cloud & DevOps
+    aws: { category: 'cloudDevops', canonical: 'AWS', patterns: [/\baws\b/i, /\bamazon web services\b/i] },
+    azure: { category: 'cloudDevops', canonical: 'Azure', patterns: [/\bazure\b/i] },
+    gcp: { category: 'cloudDevops', canonical: 'GCP', patterns: [/\bgcp\b/i, /\bgoogle cloud\b/i] },
+    docker: { category: 'cloudDevops', canonical: 'Docker', patterns: [/\bdocker\b/i] },
+    kubernetes: { category: 'cloudDevops', canonical: 'Kubernetes', patterns: [/\bkubernetes\b/i, /\bk8s\b/i] },
+    terraform: { category: 'cloudDevops', canonical: 'Terraform', patterns: [/\bterraform\b/i] },
+    cicd: { category: 'cloudDevops', canonical: 'CI/CD', patterns: [/\bci\s*\/\s*cd\b/i, /\bgithub actions\b/i] },
+    linux: { category: 'cloudDevops', canonical: 'Linux', patterns: [/\blinux\b/i, /\bubuntu\b/i] },
+
+    // Tools & Databases
+    postgresql: { category: 'tools', canonical: 'PostgreSQL', patterns: [/\bpostgres(ql)?\b/i] },
+    mysql: { category: 'tools', canonical: 'MySQL', patterns: [/\bmysql\b/i] },
+    mongodb: { category: 'tools', canonical: 'MongoDB', patterns: [/\bmongo(db)?\b/i] },
+    redis: { category: 'tools', canonical: 'Redis', patterns: [/\bredis\b/i] },
+    git: { category: 'tools', canonical: 'Git', patterns: [/\bgit\b/i, /\bgithub\b/i] },
+    jira: { category: 'tools', canonical: 'Jira', patterns: [/\bjira\b/i] },
+    postman: { category: 'tools', canonical: 'Postman', patterns: [/\bpostman\b/i] },
+    jest: { category: 'tools', canonical: 'Jest', patterns: [/\bjest\b/i] },
+    kafka: { category: 'tools', canonical: 'Kafka', patterns: [/\bkafka\b/i] },
+  };
+
+  const detectedSkills: string[] = [];
+  const skillCategories = {
+    languages: [] as string[],
+    frameworks: [] as string[],
+    cloudDevops: [] as string[],
+    tools: [] as string[],
+    domainSpecialties: [] as string[],
+  };
+
+  for (const info of Object.values(skillCatalog)) {
+    if (info.patterns.some((p) => p.test(resumeText))) {
+      detectedSkills.push(info.canonical);
+      skillCategories[info.category].push(info.canonical);
+    }
+  }
+
+  // 5. Headline inference
+  let headline = 'Software Engineer';
+  if (detectedSkills.includes('React') || detectedSkills.includes('TypeScript') || detectedSkills.includes('JavaScript')) {
+    headline = 'Full Stack / Frontend Software Engineer';
+  } else if (detectedSkills.includes('Python') || detectedSkills.includes('Django') || detectedSkills.includes('FastAPI')) {
+    headline = 'Backend / Python Engineer';
+  } else if (detectedSkills.includes('AWS') || detectedSkills.includes('Docker') || detectedSkills.includes('Kubernetes')) {
+    headline = 'DevOps / Cloud Platform Engineer';
+  }
+
+  // Summary
+  const summary = lines.slice(0, 8).join(' ').slice(0, 320);
+
+  return {
+    name: name || undefined,
+    email: email || undefined,
+    phone: phone || undefined,
+    headline,
+    summary,
+    skills: detectedSkills.length > 0 ? detectedSkills : undefined,
+    skillCategories: detectedSkills.length > 0 ? skillCategories : undefined,
+  };
+}
+
 // ---------------- API ROUTES ----------------
 
 // Health
@@ -110,7 +251,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'JobPilot AI Server',
-    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    geminiConfigured: hasValidGeminiKey(),
   });
 });
 
@@ -136,15 +277,30 @@ app.put('/api/candidate', (req: Request, res: Response) => {
   res.json(candidateProfile);
 });
 
-// Upload & Parse Resume via Gemini
+// Upload & Parse Resume
 app.post('/api/candidate/upload-resume', async (req: Request, res: Response) => {
   try {
     const { rawText, fileBase64, mimeType, fileName } = req.body;
 
     let resumeText = rawText || '';
 
-    // If fileBase64 is passed (e.g. PDF or DOCX), use Gemini to parse document content
-    if (fileBase64 && process.env.GEMINI_API_KEY) {
+    // 1. If fileBase64 is passed (e.g. PDF or text document), parse locally via pdf-parse first
+    if (fileBase64 && (!resumeText || resumeText.trim().length === 0)) {
+      try {
+        const buffer = Buffer.from(fileBase64, 'base64');
+        const pdfParser = new pdf.PDFParse({ data: buffer });
+        const pdfResult = await pdfParser.getText();
+        if (pdfResult && pdfResult.text && pdfResult.text.trim().length > 0) {
+          resumeText = pdfResult.text;
+        }
+        await pdfParser.destroy().catch(() => {});
+      } catch (pdfErr) {
+        console.warn('Local PDF parser note (will fallback to raw or AI if available):', pdfErr);
+      }
+    }
+
+    // 2. If Gemini is configured with a valid key and resumeText is still empty
+    if (hasValidGeminiKey() && fileBase64 && (!resumeText || resumeText.trim().length === 0)) {
       try {
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -166,18 +322,21 @@ app.post('/api/candidate/upload-resume', async (req: Request, res: Response) => 
           resumeText = response.text;
         }
       } catch (docErr) {
-        console.error('Error processing PDF inline with Gemini, falling back to raw text if available', docErr);
+        console.error('Error processing PDF inline with Gemini:', docErr);
       }
     }
 
     if (!resumeText || resumeText.trim().length === 0) {
-      res.status(400).json({ error: 'No resume text or valid file content received.' });
+      res.status(400).json({ error: 'Could not extract text from the uploaded file. Please paste your resume text or upload a valid PDF/text document.' });
       return;
     }
 
-    // Now call Gemini to extract structured CandidateProfile JSON
-    if (process.env.GEMINI_API_KEY) {
-      const prompt = `Analyze this resume text and extract the candidate profile into clean structured JSON.
+    let parsedData: any = null;
+
+    // 3. If Gemini is configured and valid, try LLM extraction first
+    if (hasValidGeminiKey()) {
+      try {
+        const prompt = `Analyze this resume text and extract the candidate profile into clean structured JSON.
 CRITICAL RULES:
 - Never fabricate achievements, companies, dates, or skills.
 - Extract actual stated skills into categories (languages, frameworks, cloudDevops, tools, domainSpecialties).
@@ -187,152 +346,166 @@ CRITICAL RULES:
 RESUME CONTENT:
 ${resumeText}`;
 
-      const aiResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              email: { type: Type.STRING },
-              phone: { type: Type.STRING },
-              location: { type: Type.STRING },
-              headline: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              skills: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              skillCategories: {
-                type: Type.OBJECT,
-                properties: {
-                  languages: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  frameworks: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  cloudDevops: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  tools: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  domainSpecialties: { type: Type.ARRAY, items: { type: Type.STRING } },
+        const aiResponse = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                email: { type: Type.STRING },
+                phone: { type: Type.STRING },
+                location: { type: Type.STRING },
+                headline: { type: Type.STRING },
+                summary: { type: Type.STRING },
+                skills: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
-                required: ['languages', 'frameworks', 'cloudDevops', 'tools'],
-              },
-              experience: {
-                type: Type.ARRAY,
-                items: {
+                skillCategories: {
                   type: Type.OBJECT,
                   properties: {
-                    title: { type: Type.STRING },
-                    company: { type: Type.STRING },
-                    location: { type: Type.STRING },
-                    startDate: { type: Type.STRING },
-                    endDate: { type: Type.STRING },
-                    current: { type: Type.BOOLEAN },
-                    description: { type: Type.STRING },
-                    skillsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    languages: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    frameworks: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    cloudDevops: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    tools: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    domainSpecialties: { type: Type.ARRAY, items: { type: Type.STRING } },
                   },
-                  required: ['title', 'company', 'startDate', 'description'],
+                  required: ['languages', 'frameworks', 'cloudDevops', 'tools'],
                 },
-              },
-              education: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    degree: { type: Type.STRING },
-                    field: { type: Type.STRING },
-                    institution: { type: Type.STRING },
-                    gradYear: { type: Type.STRING },
-                    grade: { type: Type.STRING },
+                experience: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING },
+                      company: { type: Type.STRING },
+                      location: { type: Type.STRING },
+                      startDate: { type: Type.STRING },
+                      endDate: { type: Type.STRING },
+                      current: { type: Type.BOOLEAN },
+                      description: { type: Type.STRING },
+                      skillsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    },
+                    required: ['title', 'company', 'startDate', 'description'],
                   },
-                  required: ['degree', 'institution', 'gradYear'],
                 },
-              },
-              projects: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    summary: { type: Type.STRING },
-                    techStack: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
+                education: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      degree: { type: Type.STRING },
+                      field: { type: Type.STRING },
+                      institution: { type: Type.STRING },
+                      gradYear: { type: Type.STRING },
+                      grade: { type: Type.STRING },
+                    },
+                    required: ['degree', 'institution', 'gradYear'],
                   },
-                  required: ['title', 'summary', 'techStack'],
                 },
+                projects: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING },
+                      summary: { type: Type.STRING },
+                      techStack: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    },
+                    required: ['title', 'summary', 'techStack'],
+                  },
+                },
+                certifications: { type: Type.ARRAY, items: { type: Type.STRING } },
+                preferredRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
               },
-              certifications: { type: Type.ARRAY, items: { type: Type.STRING } },
-              preferredRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
+              required: ['name', 'headline', 'skills'],
             },
-            required: ['name', 'headline', 'skills', 'experience', 'education'],
           },
-        },
-      });
+        });
 
-      if (aiResponse.text) {
-        const parsed = JSON.parse(aiResponse.text);
-        const newVersionId = `ver-${Date.now()}`;
-        const newVersion = {
-          id: newVersionId,
-          fileName: fileName || 'Uploaded_Resume.pdf',
-          uploadedAt: new Date().toISOString(),
-          fileSizeBytes: fileBase64 ? Math.round(fileBase64.length * 0.75) : resumeText.length,
-          extractedTextLength: resumeText.length,
-          versionName: parsed.headline || 'Parsed Resume',
-          isActive: true,
-        };
+        if (aiResponse.text) {
+          parsedData = JSON.parse(aiResponse.text);
+        }
+      } catch (geminiErr) {
+        console.warn('Gemini extraction failed, using deterministic parser fallback:', geminiErr);
+      }
+    }
 
-        // Deactivate previous active versions
-        const updatedVersions = candidateProfile.resumeVersions.map((v) => ({ ...v, isActive: false }));
-        updatedVersions.unshift(newVersion);
+    // 4. Fallback to deterministic parser if Gemini wasn't run or didn't return text
+    if (!parsedData) {
+      parsedData = parseResumeDeterministic(resumeText, fileName);
+    }
 
-        candidateProfile = {
-          ...candidateProfile,
-          name: parsed.name || candidateProfile.name,
-          email: parsed.email || candidateProfile.email,
-          phone: parsed.phone || candidateProfile.phone,
-          location: parsed.location || candidateProfile.location,
-          headline: parsed.headline || candidateProfile.headline,
-          summary: parsed.summary || candidateProfile.summary,
-          skills: parsed.skills || candidateProfile.skills,
-          skillCategories: parsed.skillCategories || candidateProfile.skillCategories,
-          experience: (parsed.experience || []).map((e: any, idx: number) => ({
+    // 5. Update candidateProfile with the extracted data
+    const newVersionId = `ver-${Date.now()}`;
+    const newVersion = {
+      id: newVersionId,
+      fileName: fileName || 'Uploaded_Resume.pdf',
+      uploadedAt: new Date().toISOString(),
+      fileSizeBytes: fileBase64 ? Math.round(fileBase64.length * 0.75) : resumeText.length,
+      extractedTextLength: resumeText.length,
+      versionName: parsedData.headline || 'Active Resume',
+      isActive: true,
+    };
+
+    const updatedVersions = candidateProfile.resumeVersions.map((v) => ({ ...v, isActive: false }));
+    updatedVersions.unshift(newVersion);
+
+    candidateProfile = {
+      ...candidateProfile,
+      name: parsedData.name || candidateProfile.name,
+      email: parsedData.email || candidateProfile.email,
+      phone: parsedData.phone || candidateProfile.phone,
+      location: parsedData.location || candidateProfile.location,
+      headline: parsedData.headline || candidateProfile.headline,
+      summary: parsedData.summary || candidateProfile.summary,
+      skills: (parsedData.skills && parsedData.skills.length > 0) ? parsedData.skills : candidateProfile.skills,
+      skillCategories: parsedData.skillCategories || candidateProfile.skillCategories,
+      experience: parsedData.experience && parsedData.experience.length > 0
+        ? (parsedData.experience as any[]).map((e: any, idx: number) => ({
             id: `exp-${Date.now()}-${idx}`,
             ...e,
             current: !!e.current,
             skillsUsed: e.skillsUsed || [],
-          })),
-          education: (parsed.education || []).map((ed: any, idx: number) => ({
+          }))
+        : candidateProfile.experience,
+      education: parsedData.education && parsedData.education.length > 0
+        ? (parsedData.education as any[]).map((ed: any, idx: number) => ({
             id: `edu-${Date.now()}-${idx}`,
             ...ed,
-          })),
-          projects: (parsed.projects || []).map((p: any, idx: number) => ({
+          }))
+        : candidateProfile.education,
+      projects: parsedData.projects && parsedData.projects.length > 0
+        ? (parsedData.projects as any[]).map((p: any, idx: number) => ({
             id: `proj-${Date.now()}-${idx}`,
             ...p,
             highlights: p.highlights || [],
-          })),
-          certifications: parsed.certifications || candidateProfile.certifications,
-          preferredRoles: parsed.preferredRoles || candidateProfile.preferredRoles,
-          rawResumeText: resumeText,
-          resumeVersions: updatedVersions,
-          activeResumeId: newVersionId,
-          updatedAt: new Date().toISOString(),
-        };
+          }))
+        : candidateProfile.projects,
+      certifications: parsedData.certifications || candidateProfile.certifications,
+      preferredRoles: parsedData.preferredRoles || candidateProfile.preferredRoles,
+      rawResumeText: resumeText,
+      resumeVersions: updatedVersions,
+      activeResumeId: newVersionId,
+      updatedAt: new Date().toISOString(),
+    };
 
-        // Recalculate matches across all jobs
-        jobsStore = jobsStore.map((job) => ({
-          ...job,
-          matchResult: calculateDeterministicMatch(candidateProfile, job),
-        }));
+    // 6. Recalculate matches across all jobs in jobsStore
+    jobsStore = jobsStore.map((job) => ({
+      ...job,
+      matchResult: calculateDeterministicMatch(candidateProfile, job),
+    }));
 
-        res.json({ success: true, profile: candidateProfile });
-        return;
-      }
-    }
-
-    // Fallback if no Gemini key: update raw text and preserve profile
-    candidateProfile.rawResumeText = resumeText;
-    candidateProfile.updatedAt = new Date().toISOString();
-    res.json({ success: true, profile: candidateProfile, fallback: true });
+    res.json({
+      success: true,
+      profile: candidateProfile,
+      extractedSkillsCount: candidateProfile.skills.length,
+      fallback: !hasValidGeminiKey(),
+    });
   } catch (error: any) {
     console.error('Error in resume upload handler:', error);
     res.status(500).json({ error: error?.message || 'Failed to parse resume.' });
