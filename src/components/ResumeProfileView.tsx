@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Upload,
   FileText,
@@ -15,6 +15,8 @@ import {
   Briefcase,
   GraduationCap,
   FolderGit2,
+  X,
+  ClipboardPaste,
 } from 'lucide-react';
 import { CandidateProfile, WorkExperience, EducationItem, ProjectItem } from '../types/candidate';
 
@@ -39,9 +41,18 @@ export const ResumeProfileView: React.FC<ResumeProfileViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [newSkill, setNewSkill] = useState('');
   const [skillCategory, setSkillCategory] = useState<'languages' | 'frameworks' | 'cloudDevops' | 'tools'>('languages');
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pastedText, setPastedText] = useState('');
+  const [isParsingPasted, setIsParsingPasted] = useState(false);
+
+  // Synchronize form state whenever the parent profile updates (e.g. after upload or save)
+  useEffect(() => {
+    setFormData(profile);
+  }, [profile]);
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,37 +61,70 @@ export const ResumeProfileView: React.FC<ResumeProfileViewProps> = ({
 
     setIsUploading(true);
     setUploadError(null);
+    setUploadSuccess(null);
 
     try {
-      if (file.type === 'application/pdf') {
+      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
         const reader = new FileReader();
         reader.onload = async () => {
           try {
             const base64 = (reader.result as string).split(',')[1];
             await onUploadResume({
               fileBase64: base64,
-              mimeType: file.type,
+              mimeType: file.type || 'application/pdf',
               fileName: file.name,
             });
             setIsUploading(false);
+            setUploadSuccess(`"${file.name}" uploaded and parsed successfully! Skills and match scores have been recalculated.`);
+            setTimeout(() => setUploadSuccess(null), 6000);
           } catch (err: any) {
             setUploadError(err.message || 'Failed to parse resume');
             setIsUploading(false);
           }
         };
+        reader.onerror = () => {
+          setUploadError('Failed to read the selected file.');
+          setIsUploading(false);
+        };
         reader.readAsDataURL(file);
       } else {
-        // Plain text or markdown
+        // Plain text, markdown, or docx text
         const text = await file.text();
         await onUploadResume({
           rawText: text,
           fileName: file.name,
         });
         setIsUploading(false);
+        setUploadSuccess(`"${file.name}" uploaded and parsed successfully! Skills and match scores have been recalculated.`);
+        setTimeout(() => setUploadSuccess(null), 6000);
       }
     } catch (err: any) {
       setUploadError(err.message || 'Failed to upload file');
       setIsUploading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handlePasteSubmit = async () => {
+    if (!pastedText.trim()) return;
+    setIsParsingPasted(true);
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    try {
+      await onUploadResume({
+        rawText: pastedText.trim(),
+        fileName: 'Pasted_Resume_Text.txt',
+      });
+      setShowPasteModal(false);
+      setPastedText('');
+      setUploadSuccess('Resume text parsed successfully! Candidate profile and job match scores updated.');
+      setTimeout(() => setUploadSuccess(null), 6000);
+    } catch (err: any) {
+      setUploadError(err.message || 'Failed to parse resume text');
+    } finally {
+      setIsParsingPasted(false);
     }
   };
 
@@ -138,14 +182,22 @@ export const ResumeProfileView: React.FC<ResumeProfileViewProps> = ({
               Candidate Resume & Profile Manager
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
-              Upload your resume in PDF, DOCX, or text format. Our server-side parser extracts verified skills and experience into structured fields for deep match scoring.
+              Upload your resume in PDF, DOCX, or text format, or paste your resume text directly. Extracted skills and credentials automatically recalculate deep match scores across all active jobs.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+            <button
+              onClick={() => setShowPasteModal(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl cursor-pointer transition-colors"
+            >
+              <ClipboardPaste className="w-4 h-4 text-sky-400" />
+              <span>Paste Resume Text</span>
+            </button>
+
             <label className="relative inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl cursor-pointer transition-colors shadow-sm shadow-sky-600/20">
               <Upload className="w-4 h-4" />
-              <span>{isUploading ? 'Extracting Resume...' : 'Upload New Resume'}</span>
+              <span>{isUploading ? 'Extracting Resume...' : 'Upload PDF / Text'}</span>
               <input
                 type="file"
                 accept=".pdf,.txt,.docx,.md"
@@ -156,6 +208,13 @@ export const ResumeProfileView: React.FC<ResumeProfileViewProps> = ({
             </label>
           </div>
         </div>
+
+        {uploadSuccess && (
+          <div className="mt-4 p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/80 text-xs text-emerald-300 flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-medium">{uploadSuccess}</span>
+          </div>
+        )}
 
         {uploadError && (
           <div className="mt-4 p-3 rounded-lg bg-red-950/40 border border-red-800/80 text-xs text-red-300 flex items-center gap-2">
@@ -588,6 +647,55 @@ export const ResumeProfileView: React.FC<ResumeProfileViewProps> = ({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Paste Resume Modal */}
+      {showPasteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#111726] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <ClipboardPaste className="w-5 h-5 text-sky-400" />
+                <h2 className="text-base font-bold text-white">Paste Resume / CV Text</h2>
+              </div>
+              <button
+                onClick={() => setShowPasteModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Paste the text content of your resume, LinkedIn summary, or portfolio. Our parser will extract your name, contact details, categorized skills, and recalculate match scores across all job postings.
+            </p>
+
+            <textarea
+              rows={12}
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              placeholder="Paste your resume transcript, work history, skills, and education here..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 leading-relaxed"
+            />
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowPasteModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasteSubmit}
+                disabled={!pastedText.trim() || isParsingPasted}
+                className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-colors shadow-sm shadow-sky-600/20 disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>{isParsingPasted ? 'Parsing & Extracting Skills...' : 'Parse & Update Profile'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
