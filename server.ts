@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import pdf from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
   initialCandidateProfile,
@@ -288,7 +288,7 @@ app.post('/api/candidate/upload-resume', async (req: Request, res: Response) => 
     if (fileBase64 && (!resumeText || resumeText.trim().length === 0)) {
       try {
         const buffer = Buffer.from(fileBase64, 'base64');
-        const pdfParser = new pdf.PDFParse({ data: buffer });
+        const pdfParser = new PDFParse({ data: buffer });
         const pdfResult = await pdfParser.getText();
         if (pdfResult && pdfResult.text && pdfResult.text.trim().length > 0) {
           resumeText = pdfResult.text;
