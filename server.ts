@@ -758,12 +758,13 @@ app.post('/api/jobs/:id/verify', async (req: Request, res: Response) => {
       return;
     }
 
-    if (!process.env.GEMINI_API_KEY) {
+    if (!hasValidGeminiKey()) {
       res.json(job.verificationReport);
       return;
     }
 
-    const prompt = `Conduct a rigorous recruitment safety and fraud verification audit on this job vacancy.
+    try {
+      const prompt = `Conduct a rigorous recruitment safety and fraud verification audit on this job vacancy.
 EVALUATION SIGNALS TO ASSESS:
 1. Upfront Payment / Registration / Training fees demanded? (Classic scam red flag)
 2. Redirects to non-official channels like personal WhatsApp, Telegram, or free webmail?
@@ -782,55 +783,59 @@ Salary: ${job.salary?.displayText || 'Undisclosed'}
 
 Return an honest assessment in JSON format. Do not claim a job is verified unless supported by evidence.`;
 
-    const aiRes = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            status: {
-              type: Type.STRING,
-              description: 'Must be one of: "Verified", "Needs Review", "High Risk"',
-            },
-            confidence: { type: Type.INTEGER, description: 'Confidence between 0 and 100' },
-            summary: { type: Type.STRING },
-            checks: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  passed: { type: Type.BOOLEAN },
-                  severity: { type: Type.STRING, description: '"info", "warning", or "critical"' },
-                  details: { type: Type.STRING },
-                },
-                required: ['name', 'passed', 'severity', 'details'],
+      const aiRes = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              status: {
+                type: Type.STRING,
+                description: 'Must be one of: "Verified", "Needs Review", "High Risk"',
               },
+              confidence: { type: Type.INTEGER, description: 'Confidence between 0 and 100' },
+              summary: { type: Type.STRING },
+              checks: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    passed: { type: Type.BOOLEAN },
+                    severity: { type: Type.STRING, description: '"info", "warning", or "critical"' },
+                    details: { type: Type.STRING },
+                  },
+                  required: ['name', 'passed', 'severity', 'details'],
+                },
+              },
+              evidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+              warnings: { type: Type.ARRAY, items: { type: Type.STRING } },
             },
-            evidence: { type: Type.ARRAY, items: { type: Type.STRING } },
-            warnings: { type: Type.ARRAY, items: { type: Type.STRING } },
+            required: ['status', 'confidence', 'summary', 'checks'],
           },
-          required: ['status', 'confidence', 'summary', 'checks'],
         },
-      },
-    });
+      });
 
-    if (aiRes.text) {
-      const parsed = JSON.parse(aiRes.text);
-      job.verificationReport = {
-        status: parsed.status as any,
-        confidence: parsed.confidence,
-        lastChecked: new Date().toISOString(),
-        summary: parsed.summary,
-        checks: parsed.checks.map((c: any, i: number) => ({ id: `chk-${Date.now()}-${i}`, ...c })),
-        evidence: parsed.evidence || [],
-        warnings: parsed.warnings || [],
-      };
+      if (aiRes.text) {
+        const parsed = JSON.parse(aiRes.text);
+        job.verificationReport = {
+          status: parsed.status as any,
+          confidence: parsed.confidence,
+          lastChecked: new Date().toISOString(),
+          summary: parsed.summary,
+          checks: parsed.checks.map((c: any, i: number) => ({ id: `chk-${Date.now()}-${i}`, ...c })),
+          evidence: parsed.evidence || [],
+          warnings: parsed.warnings || [],
+        };
+      }
+    } catch (aiErr) {
+      console.warn('AI verification failed, returning cached/baseline report:', aiErr);
     }
 
     res.json(job.verificationReport);
+    return;
   } catch (error: any) {
     console.error('Error verifying job:', error);
     res.status(500).json({ error: error?.message || 'Verification audit failed' });
