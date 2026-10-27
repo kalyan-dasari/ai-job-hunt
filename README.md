@@ -100,32 +100,82 @@ ai-job-hunt/
 ## 🛠️ Setup & Running Locally
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- npm or pnpm
+- **Node.js**: v18.0.0 or higher
+- **npm** (comes with Node.js) or **pnpm**
 
-### 1. Install Dependencies
+---
+
+### Step 1: Install Dependencies
+Before running the application, install the project dependencies (this installs `tsx`, Vite, React 19, Express, and required types):
 ```bash
 npm install
 ```
 
-### 2. Environment Configuration
-Create a `.env` file from the example:
+> **Note for Windows users**: If you previously saw `'tsx' is not recognized as an internal or external command`, running `npm install` ensures `tsx` is installed inside `node_modules/.bin`.
+
+---
+
+### Step 2: Configure Environment
+Create your `.env` configuration file from the template:
+
+**On Linux / macOS / Git Bash:**
 ```bash
 cp .env.example .env
 ```
-*(Optional)* Add your `GEMINI_API_KEY` in `.env` to enable full AI parsing, matching, and assistant features (graceful fallbacks are built-in if running without a key).
 
-### 3. Start Development Server
+**On Windows (PowerShell):**
+```powershell
+Copy-Item .env.example .env
+```
+
+*(Optional)* Add your Google Gemini API Key in `.env` if you'd like to enable live AI parsing, 6D resume matching, and tailored pitch generation. The application includes built-in deterministic fallbacks if running without an API key.
+
+---
+
+### Step 3: Start Development Server
+Launch the full-stack development server:
 ```bash
 npm run dev
 ```
-The application will launch at `http://localhost:3000` with hot-module reloading.
 
-### 4. Build for Production
+This starts the unified Express backend and Vite frontend with hot-module reloading (HMR).
+Once started, open your browser and navigate to:
+```
+http://localhost:3000
+```
+
+---
+
+### Step 4: Build & Run in Production (Optional)
+To test or deploy the production build:
 ```bash
+# 1. Compile frontend assets into /dist
 npm run build
+
+# 2. Launch production server
 npm start
 ```
+
+---
+
+### 💡 Common Commands & Scripts
+
+| Command | Description |
+|---|---|
+| `npm install` | Installs all required dependencies |
+| `npm run dev` | Runs the full-stack app in development mode at `http://localhost:3000` |
+| `npm run build` | Compiles the production bundle via Vite into `dist/` |
+| `npm start` | Runs the production Express server serving pre-built assets |
+| `npm run lint` | Runs TypeScript type checking without emitting files |
+
+---
+
+### ❓ Troubleshooting
+
+- **`'tsx' is not recognized`**:
+  Make sure you ran `npm install` in the project root first. If running outside `npm scripts`, you can use `npx tsx server.ts`.
+- **Port 3000 already in use**:
+  Set a custom port in `.env` (e.g., `PORT=3001`), or pass `PORT=3001 npm run dev`.
 
 ---
 
