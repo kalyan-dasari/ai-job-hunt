@@ -58,3 +58,4 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
     calculatedAt: new Date().toISOString(),
   };
 }
+

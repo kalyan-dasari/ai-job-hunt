@@ -76,3 +76,4 @@ export class SourceAdapterRegistry {
 }
 
 export const sourceRegistry = new SourceAdapterRegistry();
+

@@ -64,3 +64,4 @@ export abstract class BaseJobSourceAdapter implements JobSourceAdapter {
     throw lastError || new Error(`Request to ${url} failed after ${maxRetries} retries.`);
   }
 }
+
