@@ -11,6 +11,7 @@ export type JobSource =
   | 'Manual Import';
 
 export type VerificationStatus = 'Verified' | 'Needs Review' | 'High Risk' | 'Unknown';
+export type FreshnessStatus = 'Newly Discovered' | 'Active' | 'Potentially Stale' | 'Expired' | 'Closed';
 
 export interface VerificationCheckDetail {
   id: string;
@@ -98,5 +99,8 @@ export interface Job {
   isDismissed?: boolean;
   isDuplicate?: boolean;
   duplicateOfId?: string;
+  freshnessStatus?: FreshnessStatus;
+  expiryDate?: string;
+  lastVerifiedAt?: string;
   isDemo?: boolean;
 }
