@@ -344,6 +344,10 @@ export function initDatabase(customPath?: string): DatabaseSync {
 
   dbInstance = db;
   currentDbPath = targetPath;
+
+  // Ensure default candidate record exists for foreign key references
+  candidateRepository.saveInitialEmptyProfile();
+
   return dbInstance;
 }
 
@@ -530,6 +534,7 @@ export const candidateRepository = {
   },
 
   addResumeVersion(version: ResumeVersion, rawText: string): void {
+    this.saveInitialEmptyProfile();
     const db = getDatabase();
     transaction(() => {
       // Deactivate prior versions if this is active
@@ -1365,6 +1370,7 @@ export const activityLogsRepository = {
 export const exportRepository = {
   getBackupPayload(): {
     candidate: CandidateProfile;
+    candidateProfile: CandidateProfile;
     jobs: Job[];
     applications: ApplicationRecord[];
     emails: EmailMessageRecord[];
@@ -1373,8 +1379,10 @@ export const exportRepository = {
     activityLogs: any[];
     exportedAt: string;
   } {
+    const cand = candidateRepository.getProfile();
     return {
-      candidate: candidateRepository.getProfile(),
+      candidate: cand,
+      candidateProfile: cand,
       jobs: jobsRepository.getAllJobs(),
       applications: applicationsRepository.getAllApplications(),
       emails: emailsRepository.getAllEmails(),

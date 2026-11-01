@@ -310,7 +310,8 @@ ${resumeText}`;
       ];
 
       commonTech.forEach((tech) => {
-        const regex = new RegExp(`\\b${tech.replace('.', '\\.')}\\b`, 'i');
+        const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?:^|[^a-zA-Z0-9_#+])${escaped}(?:$|[^a-zA-Z0-9_#+])`, 'i');
         if (regex.test(resumeText)) {
           detectedSkills.push(tech);
         }
@@ -1068,9 +1069,11 @@ ${fullBody}`;
           confidence = parsed.confidence || 90;
         }
       } catch (e) {
-        console.error('Error analyzing email with Gemini:', e);
+        console.error('Error analyzing email with Gemini (using deterministic parser fallback):', e);
       }
-    } else {
+    }
+
+    if (detectedType === 'inquiry') {
       // Deterministic fallback regex
       const lower = (subject + ' ' + fullBody).toLowerCase();
       if (lower.includes('interview') || lower.includes('google meet') || lower.includes('zoom call')) {

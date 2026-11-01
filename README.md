@@ -58,7 +58,7 @@ JobPilot AI is a full-stack, production-ready web application designed to help j
 | **Build & Tooling** | Vite, TSX, PostCSS, Autoprefixer |
 | **Backend & Server** | Node.js, Express, TypeScript |
 | **Intelligence** | Google Gemini 3.8 Flash (`@google/genai`) with offline fallback support |
-| **Storage & Data** | In-memory modular store with JSON/CSV export and database-ready interfaces |
+| **Storage & Data** | Persistent SQLite (`data/jobpilot.db`) with WAL mode, foreign keys & JSON/CSV exports |
 
 ---
 
@@ -66,6 +66,10 @@ JobPilot AI is a full-stack, production-ready web application designed to help j
 
 ```
 ai-job-hunt/
+├── data/                          # SQLite persistent database directory
+│   └── jobpilot.db               # Local SQLite database (git-ignored)
+├── server/
+│   └── database.ts               # SQLite connection, migrations & typed repositories
 ├── src/
 │   ├── api/
 │   │   └── client.ts              # Frontend client for backend services
@@ -90,6 +94,8 @@ ai-job-hunt/
 │   ├── index.css                  # Global styles & Tailwind entry
 │   └── main.tsx                   # React root mount
 ├── server.ts                      # Express backend & AI processing pipeline
+├── test_inprocess.ts              # 14-test in-process SQLite persistence regression suite
+├── test_process_restart.ts        # Critical process restart lifecycle test
 ├── package.json                   # Dependencies & build scripts
 ├── tsconfig.json                  # TypeScript configuration
 └── vite.config.ts                 # Vite bundler configuration
@@ -167,6 +173,8 @@ npm start
 | `npm run build` | Compiles the production bundle via Vite into `dist/` |
 | `npm start` | Runs the production Express server serving pre-built assets |
 | `npm run lint` | Runs TypeScript type checking without emitting files |
+| `npm test` | Runs the 14-test SQLite persistence regression suite |
+| `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
 
 ---
 
