@@ -6,6 +6,7 @@ JobPilot AI is a full-stack, production-ready web application designed to help j
 
 ## 🚀 Key Highlights & Capabilities
 
+- **Real Job Discovery & Ingestion Engine**: Automatically discovers verified career opportunities via corporate career feeds and modular source adapters with cross-source deduplication, provenance tracking, and freshness lifecycle badges.
 - **Authenticity & Scam Detection**: Transparent multi-point audits checking company domains, recruiting patterns, absence of advance fees/charges, and legitimate ATS destinations to protect job seekers from employment scams.
 - **6-Dimensional AI Resume Matcher**: Evaluates Technical Skills, Relevant Experience, Project Relevance, Education & Certifications, Location/Arrangement, and Seniority Alignment to generate actionable match percentages and missing skill recommendations.
 - **Guided Application Assistant**: 4-step streamlined preparation workflow generating grounded tailored cover letters, recruiter pitches, custom resume bullet points, and interview screening checklists.
