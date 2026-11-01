@@ -26,8 +26,6 @@ export type NavTab =
 interface NavbarProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
-  isDemoMode: boolean;
-  setIsDemoMode: (val: boolean) => void;
   unreadCount: number;
   onOpenNotifications: () => void;
   onOpenImport: () => void;
@@ -37,8 +35,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
-  isDemoMode,
-  setIsDemoMode,
   unreadCount,
   onOpenNotifications,
   onOpenImport,
@@ -47,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-40 w-full bg-[#0e131f]/95 backdrop-blur-md border-b border-slate-800/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-        {/* Zone 1: Brand Wordmark & Mode Indicator */}
+        {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-700/80 bg-slate-900 shadow-sm flex items-center justify-center">
             <img
@@ -64,26 +60,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="text-base font-bold tracking-tight text-white whitespace-nowrap">
             JobPilot <span className="text-sky-400">AI</span>
           </span>
-
-          {/* Clean mode toggle */}
-          <div className="hidden sm:flex items-center ml-2 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800 text-xs">
-            <button
-              onClick={() => setIsDemoMode(false)}
-              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap font-medium ${
-                !isDemoMode ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Live Feed
-            </button>
-            <button
-              onClick={() => setIsDemoMode(true)}
-              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap font-medium ${
-                isDemoMode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Demo Mode
-            </button>
-          </div>
         </div>
 
         {/* Zone 2: Navigation Links (single-line, clean text tabs) */}
