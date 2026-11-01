@@ -135,3 +135,4 @@ console.log('[Process 1 - Writer] Closing database connection and terminating pr
 closeDatabase();
 console.log('[Process 1 - Writer] Worker process completed successfully.');
 process.exit(0);
+
