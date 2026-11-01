@@ -1379,9 +1379,13 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(port, () => {
+  app.listen(Number(port), '0.0.0.0', () => {
     console.log(`JobPilot AI Full-Stack Server running at http://localhost:${port}`);
   });
 }
 
-startServer();
+export { app, startServer };
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
