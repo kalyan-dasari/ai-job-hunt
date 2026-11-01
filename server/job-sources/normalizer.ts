@@ -2,19 +2,11 @@ import { Job, WorkArrangement, EmploymentType, ExperienceLevel, VerificationRepo
 import { RawSourceJob } from './types.ts';
 
 // Clean tracking parameters to produce clean canonical URLs
-export function sanitizeAndCanonicalizeUrl(rawUrl: string): { originalUrl: string; canonicalUrl: string } {
-  if (!rawUrl || typeof rawUrl !== 'string') {
-    return { originalUrl: 'https://example.com/careers', canonicalUrl: 'https://example.com/careers' };
-  }
-
+export function sanitizeUrl(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
   const trimmed = rawUrl.trim();
-  // Ensure valid HTTP/HTTPS protocol for security
-  if (!/^https?:\/\//i.test(trimmed)) {
-    return { originalUrl: `https://${trimmed}`, canonicalUrl: `https://${trimmed}` };
-  }
-
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
     const trackingParams = [
       'utm_source',
       'utm_medium',
@@ -29,13 +21,32 @@ export function sanitizeAndCanonicalizeUrl(rawUrl: string): { originalUrl: strin
       'mc_eid',
     ];
     trackingParams.forEach((param) => parsed.searchParams.delete(param));
-    return {
-      originalUrl: trimmed,
-      canonicalUrl: parsed.toString().replace(/\/$/, ''),
-    };
+    let cleaned = parsed.toString().replace(/\/$/, '');
+    if (cleaned.endsWith('?')) cleaned = cleaned.slice(0, -1);
+    return cleaned;
   } catch {
-    return { originalUrl: trimmed, canonicalUrl: trimmed };
+    return trimmed;
   }
+}
+
+export function parseSalaryString(text: string): { min?: number; max?: number; currency: string } {
+  const numbers = text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g);
+  const currency = text.includes('₹') || text.toLowerCase().includes('inr') ? 'INR' : 'USD';
+  return {
+    min: numbers && numbers.length > 0 ? parseFloat(numbers[0]) : undefined,
+    max: numbers && numbers.length > 1 ? parseFloat(numbers[1]) : undefined,
+    currency,
+  };
+}
+
+export function sanitizeAndCanonicalizeUrl(rawUrl: string): { originalUrl: string; canonicalUrl: string } {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { originalUrl: 'https://example.com/careers', canonicalUrl: 'https://example.com/careers' };
+  }
+
+  const trimmed = rawUrl.trim();
+  const canonicalUrl = sanitizeUrl(trimmed);
+  return { originalUrl: trimmed, canonicalUrl };
 }
 
 // Infer work arrangement from text clues
@@ -158,13 +169,24 @@ export function normalizeRawJob(raw: RawSourceJob, existingId?: string): Job {
   // Normalize salary displayText if provided
   let salary: Job['salary'] = undefined;
   if (raw.salaryMin || raw.salaryMax || raw.salaryText) {
+    let min = raw.salaryMin;
+    let max = raw.salaryMax;
+    let currency = raw.salaryCurrency || (raw.salaryText?.includes('₹') ? 'INR' : 'USD');
+
+    if ((min === undefined || max === undefined) && raw.salaryText) {
+      const parsed = parseSalaryString(raw.salaryText);
+      min = min ?? parsed.min;
+      max = max ?? parsed.max;
+      currency = raw.salaryCurrency || parsed.currency;
+    }
+
     salary = {
-      min: raw.salaryMin,
-      max: raw.salaryMax,
-      currency: raw.salaryCurrency || (raw.salaryText?.includes('₹') ? 'INR' : 'USD'),
+      min,
+      max,
+      currency,
       period: 'yearly',
       disclosed: true,
-      displayText: raw.salaryText || `${raw.salaryMin || ''} - ${raw.salaryMax || ''} ${raw.salaryCurrency || ''}`.trim(),
+      displayText: raw.salaryText || `${min || ''} - ${max || ''} ${currency}`.trim(),
     };
   }
 

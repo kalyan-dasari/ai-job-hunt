@@ -38,6 +38,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [selectedFreshness, setSelectedFreshness] = useState<string>('all');
   const [selectedVerification, setSelectedVerification] = useState<string>('all');
   const [startupOnly, setStartupOnly] = useState(false);
   const [minScore, setMinScore] = useState<number>(0);
@@ -77,6 +78,12 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     filtered = filtered.filter((j) => j.source.toLowerCase() === selectedSource.toLowerCase());
   }
 
+  if (selectedFreshness !== 'all') {
+    filtered = filtered.filter(
+      (j) => (j.freshnessStatus || 'Active').toLowerCase() === selectedFreshness.toLowerCase()
+    );
+  }
+
   if (selectedVerification !== 'all') {
     filtered = filtered.filter(
       (j) => j.verificationReport.status.toLowerCase() === selectedVerification.toLowerCase()
@@ -107,6 +114,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     setSelectedType('all');
     setSelectedLevel('all');
     setSelectedSource('all');
+    setSelectedFreshness('all');
     setSelectedVerification('all');
     setStartupOnly(false);
     setMinScore(0);
@@ -152,7 +160,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
         </div>
 
         {/* Filter Toolbar Controls */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 mt-4 pt-4 border-t border-slate-800">
           <div>
             <label className="block text-[11px] font-medium text-slate-400 mb-1">Arrangement</label>
             <select
@@ -210,6 +218,22 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               <option value="naukri">Naukri</option>
               <option value="internshala">Internshala</option>
               <option value="foundit">Foundit</option>
+              <option value="manual import">Manual Import</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Freshness</label>
+            <select
+              value={selectedFreshness}
+              onChange={(e) => setSelectedFreshness(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+            >
+              <option value="all">All Freshness</option>
+              <option value="newly discovered">Newly Discovered</option>
+              <option value="active">Active</option>
+              <option value="potentially stale">Potentially Stale</option>
+              <option value="expired">Expired</option>
             </select>
           </div>
 
@@ -332,6 +356,30 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       <span>{job.employmentType}</span>
                       <span aria-hidden="true">·</span>
                       <span className="text-slate-300 font-mono">{job.source}</span>
+                      {job.freshnessStatus && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span
+                            className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                              job.freshnessStatus === 'Newly Discovered'
+                                ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                                : job.freshnessStatus === 'Active'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}
+                          >
+                            {job.freshnessStatus}
+                          </span>
+                        </>
+                      )}
+                      {(job.lastVerifiedAt || job.lastChecked) && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-slate-500 text-[10px]">
+                            Verified {new Date(job.lastVerifiedAt || job.lastChecked).toLocaleDateString()}
+                          </span>
+                        </>
+                      )}
                       {job.isStartup && (
                         <>
                           <span aria-hidden="true">·</span>

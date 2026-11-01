@@ -1125,7 +1125,6 @@ export function syncConnectorsFromRegistry(): void {
 
 app.get('/api/connectors', (_req: Request, res: Response) => {
   try {
-    syncConnectorsFromRegistry();
     res.json(connectorsRepository.getAllConnectors());
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to load connectors', details: err.message });
@@ -1297,7 +1296,6 @@ app.get('/api/export', (req: Request, res: Response) => {
 async function startServer() {
   initDatabase();
   console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
-  syncConnectorsFromRegistry();
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
