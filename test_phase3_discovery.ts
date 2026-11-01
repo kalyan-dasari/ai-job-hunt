@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import {
   initDatabase,
@@ -29,7 +30,6 @@ async function callApi(
   body?: any
 ): Promise<{ status: number; body: any }> {
   return new Promise((resolve) => {
-    const { EventEmitter } = require('node:events');
     const req = new EventEmitter();
     (req as any).method = method;
     (req as any).url = route;
@@ -625,6 +625,7 @@ async function runPhase3Tests() {
   console.log('======================================================================');
   console.log('>>> ALL 17 PHASE 3 JOB DISCOVERY & INGESTION TESTS PASSED (100%)   <<<');
   console.log('======================================================================\n');
+  process.exit(0);
 }
 
 runPhase3Tests().catch((err) => {
