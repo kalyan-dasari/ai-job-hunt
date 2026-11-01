@@ -71,3 +71,34 @@ export interface CandidateProfile {
   activeResumeId: string;
   updatedAt: string;
 }
+
+export const emptyCandidateProfile: CandidateProfile = {
+  id: 'candidate-default',
+  name: '',
+  email: '',
+  phone: '',
+  location: '',
+  headline: '',
+  summary: '',
+  skills: [],
+  skillCategories: {
+    languages: [],
+    frameworks: [],
+    cloudDevops: [],
+    tools: [],
+    domainSpecialties: [],
+  },
+  experience: [],
+  education: [],
+  projects: [],
+  certifications: [],
+  preferredRoles: [],
+  preferredLocations: [],
+  preferredArrangements: [],
+  preferredTypes: [],
+  workAuthorization: '',
+  rawResumeText: '',
+  resumeVersions: [],
+  activeResumeId: '',
+  updatedAt: new Date().toISOString(),
+};

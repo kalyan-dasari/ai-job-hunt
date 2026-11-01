@@ -4,17 +4,10 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { PDFParse } from 'pdf-parse';
 import { GoogleGenAI, Type } from '@google/genai';
-import {
-  initialCandidateProfile,
-  initialJobs,
-  initialApplications,
-  initialEmails,
-  initialNotifications,
-  initialConnectors,
-} from './src/data/mockData.ts';
 import { Job, VerificationReport, MatchResult } from './src/types/job.ts';
-import { CandidateProfile } from './src/types/candidate.ts';
+import { CandidateProfile, emptyCandidateProfile } from './src/types/candidate.ts';
 import { ApplicationRecord, EmailMessageRecord, NotificationItem } from './src/types/application.ts';
+import { SourceConnector } from './src/types/connector.ts';
 
 dotenv.config();
 
@@ -27,13 +20,13 @@ const port = process.env.PORT || 3000;
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// In-memory persistent database state for the running instance
-let candidateProfile: CandidateProfile = { ...initialCandidateProfile };
-let jobsStore: Job[] = [...initialJobs];
-let applicationsStore: ApplicationRecord[] = [...initialApplications];
-let emailsStore: EmailMessageRecord[] = [...initialEmails];
-let notificationsStore: NotificationItem[] = [...initialNotifications];
-const connectorsStore = [...initialConnectors];
+// In-memory persistent database state for the running instance (real, empty initial state)
+let candidateProfile: CandidateProfile = { ...emptyCandidateProfile };
+let jobsStore: Job[] = [];
+let applicationsStore: ApplicationRecord[] = [];
+let emailsStore: EmailMessageRecord[] = [];
+let notificationsStore: NotificationItem[] = [];
+const connectorsStore: SourceConnector[] = [];
 
 // Shared Gemini client
 const ai = new GoogleGenAI({
@@ -663,7 +656,7 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
           newJobsList.push({
             title: entry.title || entry['job title'],
             company: entry.company || entry['company name'],
-            location: entry.location || 'Bangalore, India',
+            location: entry.location || 'Not Specified',
             description: entry.description || '',
             requiredSkills: entry.skills ? entry.skills.split(';').map((s: string) => s.trim()) : [],
             originalUrl: entry.url || entry.link || 'https://example.com/job',
@@ -694,18 +687,23 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
         return;
       }
 
+      const rawSkills = raw.requiredSkills || raw.skills;
+      const parsedSkills = Array.isArray(rawSkills)
+        ? rawSkills
+        : (typeof rawSkills === 'string' ? rawSkills.split(';').map((s: string) => s.trim()) : []);
+
       const newId = `imported-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       const newJob: Job = {
         id: newId,
         title: raw.title,
         company: raw.company,
-        location: raw.location || 'Bangalore, India',
+        location: raw.location || 'Not Specified',
         workArrangement: (raw.workArrangement as any) || 'Hybrid',
         employmentType: (raw.employmentType as any) || 'Full-time',
         experienceLevel: (raw.experienceLevel as any) || 'Mid',
         description: raw.description || `${raw.title} opportunity at ${raw.company}.`,
         responsibilities: raw.responsibilities || ['Contribute to product development.'],
-        requiredSkills: raw.requiredSkills || ['JavaScript', 'React', 'Problem Solving'],
+        requiredSkills: parsedSkills.length > 0 ? parsedSkills : ['General'],
         preferredSkills: raw.preferredSkills || [],
         source: (raw.source as any) || 'Manual Import',
         sourceJobId: raw.sourceJobId || `import-${newId}`,
