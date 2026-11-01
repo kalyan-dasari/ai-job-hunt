@@ -111,3 +111,4 @@ export class CareerPagesAdapter extends BaseJobSourceAdapter {
     }
   }
 }
+

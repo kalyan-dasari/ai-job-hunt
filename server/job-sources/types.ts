@@ -109,3 +109,4 @@ export interface JobSourceReference {
   discoveredAt: string;
   rawMetadata?: any;
 }
+
