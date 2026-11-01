@@ -290,6 +290,7 @@ async function runPhase3Tests() {
   const frontendJob: Job = {
     ...normalized,
     id: 'job-fe',
+    sourceJobId: 'ext-fe-101',
     company: 'Google LLC',
     title: 'Frontend Software Engineer (Angular / TypeScript)',
     location: 'Bangalore, India',
@@ -300,6 +301,7 @@ async function runPhase3Tests() {
   const backendJob: Job = {
     ...normalized,
     id: 'job-be',
+    sourceJobId: 'ext-be-102',
     company: 'Google LLC',
     title: 'Backend Distributed Systems Engineer (Go / C++)',
     location: 'Bangalore, India',
@@ -310,6 +312,7 @@ async function runPhase3Tests() {
   const dataScientistJob: Job = {
     ...normalized,
     id: 'job-ds',
+    sourceJobId: 'ext-ds-103',
     company: 'Google LLC',
     title: 'Lead Data Scientist - Machine Learning',
     location: 'Bangalore, India',
