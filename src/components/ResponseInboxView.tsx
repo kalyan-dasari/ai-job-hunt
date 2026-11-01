@@ -72,22 +72,22 @@ export const ResponseInboxView: React.FC<ResponseInboxViewProps> = ({
   // Sample email presets to make testing delightful
   const loadPreset = (type: 'interview' | 'assessment' | 'offer') => {
     if (type === 'interview') {
-      setFromInput('priya.talent@swiggy.in');
+      setFromInput('recruiting@techcorp.io');
       setSubjectInput('Invitation for Technical Interview - Frontend Engineering');
       setBodyInput(
-        `Hi Priya,\n\nWe were impressed by your resume and full-stack project portfolio. We would love to invite you for a 60-minute technical interview with our Lead Architect next Tuesday at 2:00 PM IST.\n\nPlease reply with your availability.\n\nWarm regards,\nSwiggy Engineering Talent Acquisition`
+        `Hi there,\n\nWe were impressed by your resume and full-stack project portfolio. We would love to invite you for a 60-minute technical interview with our Lead Architect next Tuesday at 2:00 PM IST.\n\nPlease reply with your availability.\n\nWarm regards,\nTechCorp Engineering Talent Acquisition`
       );
     } else if (type === 'assessment') {
-      setFromInput('talent-ops@atlassian.com');
-      setSubjectInput('Atlassian Online Coding Assessment');
+      setFromInput('talent-ops@cloudscale.com');
+      setSubjectInput('Online Coding Assessment');
       setBodyInput(
-        `Dear Candidate,\n\nThank you for applying to Atlassian. The next step is a 90-minute HackerRank coding challenge focusing on algorithms and concurrency. Please complete the assessment within 5 days.\n\nAtlassian Recruitment Operations`
+        `Dear Candidate,\n\nThank you for applying to CloudScale. The next step is a 90-minute HackerRank coding challenge focusing on algorithms and concurrency. Please complete the assessment within 5 days.\n\nCloudScale Recruitment Operations`
       );
     } else if (type === 'offer') {
       setFromInput('founders@hyperscalesys.io');
-      setSubjectInput('Offer of Employment: Founding Engineer at HyperScale Systems');
+      setSubjectInput('Offer of Employment: Software Engineer');
       setBodyInput(
-        `Dear Priya,\n\nOn behalf of HyperScale Systems, we are thrilled to extend an offer for the Founding Engineer position. The package includes ₹28,00,000 per annum + 0.8% equity grant with standard 4-year vesting.\n\nWe look forward to building the future of distributed inference together.\n\nBest,\nFounders, HyperScale Systems`
+        `Dear Candidate,\n\nOn behalf of HyperScale Systems, we are thrilled to extend an offer for the Software Engineer position. The package includes ₹28,00,000 per annum + 0.8% equity grant with standard 4-year vesting.\n\nWe look forward to building the future of distributed systems together.\n\nBest,\nFounders, HyperScale Systems`
       );
     }
   };
@@ -133,52 +133,60 @@ export const ResponseInboxView: React.FC<ResponseInboxViewProps> = ({
             Logged Inbound Messages ({emails.length})
           </div>
 
-          {emails.map((msg) => {
-            const isSelected = selectedEmail?.id === msg.id;
-            const categoryBadge =
-              msg.detectedType === 'interview_invite'
-                ? 'text-indigo-400'
-                : msg.detectedType === 'assessment'
-                ? 'text-amber-400'
-                : msg.detectedType === 'offer'
-                ? 'text-emerald-400'
-                : msg.detectedType === 'rejection'
-                ? 'text-red-400'
-                : 'text-sky-400';
+          {emails.length === 0 ? (
+            <div className="p-6 text-center text-slate-500 text-xs space-y-2">
+              <Mail className="w-8 h-8 mx-auto text-slate-600/70" />
+              <p className="font-medium text-slate-400">No recruiter messages logged</p>
+              <p className="text-[11px] text-slate-500">Log recruiter responses here to parse next steps, interview invites, or offers.</p>
+            </div>
+          ) : (
+            emails.map((msg) => {
+              const isSelected = selectedEmail?.id === msg.id;
+              const categoryBadge =
+                msg.detectedType === 'interview_invite'
+                  ? 'text-indigo-400'
+                  : msg.detectedType === 'assessment'
+                  ? 'text-amber-400'
+                  : msg.detectedType === 'offer'
+                  ? 'text-emerald-400'
+                  : msg.detectedType === 'rejection'
+                  ? 'text-red-400'
+                  : 'text-sky-400';
 
-            return (
-              <div
-                key={msg.id}
-                onClick={() => setSelectedEmail(msg)}
-                className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all space-y-1.5 ${
-                  isSelected
-                    ? 'bg-slate-900 border-sky-500/50'
-                    : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white line-clamp-1">{msg.from}</span>
-                  <span className={`text-[10px] font-mono uppercase font-semibold ${categoryBadge}`}>
-                    {msg.detectedType.replace('_', ' ')}
-                  </span>
-                </div>
-
-                <div className="text-slate-300 font-medium line-clamp-1">{msg.subject}</div>
-                <div className="text-slate-400 text-[11px] line-clamp-2">{msg.snippet}</div>
-
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
-                  <span>{new Date(msg.receivedAt).toLocaleDateString()}</span>
-                  {msg.statusChangeApplied ? (
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Status Applied
+              return (
+                <div
+                  key={msg.id}
+                  onClick={() => setSelectedEmail(msg)}
+                  className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all space-y-1.5 ${
+                    isSelected
+                      ? 'bg-slate-900 border-sky-500/50'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white line-clamp-1">{msg.from}</span>
+                    <span className={`text-[10px] font-mono uppercase font-semibold ${categoryBadge}`}>
+                      {msg.detectedType.replace('_', ' ')}
                     </span>
-                  ) : msg.suggestedStatusChange ? (
-                    <span className="text-amber-400">Suggests: {msg.suggestedStatusChange}</span>
-                  ) : null}
+                  </div>
+
+                  <div className="text-slate-300 font-medium line-clamp-1">{msg.subject}</div>
+                  <div className="text-slate-400 text-[11px] line-clamp-2">{msg.snippet}</div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
+                    <span>{new Date(msg.receivedAt).toLocaleDateString()}</span>
+                    {msg.statusChangeApplied ? (
+                      <span className="text-emerald-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Status Applied
+                      </span>
+                    ) : msg.suggestedStatusChange ? (
+                      <span className="text-amber-400">Suggests: {msg.suggestedStatusChange}</span>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
         {/* Right Pane: Message Viewer & Action Bar */}

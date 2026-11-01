@@ -141,6 +141,16 @@ export const ApplicationTrackerView: React.FC<ApplicationTrackerViewProps> = ({
         </div>
       </div>
 
+      {applications.length === 0 && (
+        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-6 text-center space-y-2">
+          <Calendar className="w-8 h-8 mx-auto text-slate-600/70" />
+          <h3 className="text-sm font-semibold text-white">No applications tracked yet</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Discover matching vacancies in the Discovery tab and click &quot;Apply&quot; to prepare, verify, and log active applications.
+          </p>
+        </div>
+      )}
+
       {/* Kanban Board View */}
       {viewMode === 'kanban' ? (
         <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
@@ -225,7 +235,14 @@ export const ApplicationTrackerView: React.FC<ApplicationTrackerViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {filtered.map((app) => (
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-slate-500">
+                      No applications found. Prepare an application from Job Discovery to track your progress.
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((app) => (
                   <tr key={app.id} className="hover:bg-slate-900/40 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-semibold text-white">{app.company}</div>
@@ -269,7 +286,8 @@ export const ApplicationTrackerView: React.FC<ApplicationTrackerViewProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>

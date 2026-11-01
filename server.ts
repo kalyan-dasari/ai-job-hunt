@@ -687,7 +687,7 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
         return;
       }
 
-      const rawSkills = raw.requiredSkills || raw.skills;
+      const rawSkills = raw.requiredSkills || (raw as any).skills;
       const parsedSkills = Array.isArray(rawSkills)
         ? rawSkills
         : (typeof rawSkills === 'string' ? rawSkills.split(';').map((s: string) => s.trim()) : []);

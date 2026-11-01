@@ -151,7 +151,20 @@ export const StartupJobsView: React.FC<StartupJobsViewProps> = ({
       </div>
 
       {/* Startup Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {startupJobs.length === 0 ? (
+        <div className="bg-[#111726] border border-slate-800/80 rounded-2xl p-12 text-center space-y-3">
+          <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 mx-auto flex items-center justify-center text-indigo-400">
+            <Rocket className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-semibold text-white">No startup opportunities found</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {jobs.length === 0
+              ? 'No jobs are currently imported. Ingest jobs via the Data & Sources tab to discover startup roles.'
+              : 'No startup listings match your active filters. Try resetting search criteria or clearing filters.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {startupJobs.map((job) => {
           const score = job.matchResult?.overallScore || 0;
           const info = job.startupInfo;
@@ -267,7 +280,8 @@ export const StartupJobsView: React.FC<StartupJobsViewProps> = ({
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

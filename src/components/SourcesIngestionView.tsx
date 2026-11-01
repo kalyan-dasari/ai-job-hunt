@@ -132,44 +132,54 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
       {/* Connectors Grid */}
       <div className="space-y-4">
         <h2 className="text-sm font-semibold text-white">Configured Source Connectors ({connectors.length})</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {connectors.map((conn) => (
-            <div
-              key={conn.id}
-              className="bg-[#111726] border border-slate-800/80 rounded-xl p-5 space-y-3 flex flex-col justify-between"
-            >
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-sm">{conn.displayName}</span>
-                  <span className="font-mono text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                    {conn.status}
-                  </span>
+        {connectors.length === 0 ? (
+          <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-6 text-center space-y-2">
+            <Layers className="w-8 h-8 mx-auto text-slate-600/70" />
+            <p className="text-sm font-medium text-slate-300">No external source connectors configured</p>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Use the direct dataset ingestion pipeline below to import verified job listings via CSV or JSON.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {connectors.map((conn) => (
+              <div
+                key={conn.id}
+                className="bg-[#111726] border border-slate-800/80 rounded-xl p-5 space-y-3 flex flex-col justify-between"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-sm">{conn.displayName}</span>
+                    <span className="font-mono text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {conn.status}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">{conn.description}</p>
+
+                  <div className="space-y-1 text-xs pt-1 border-t border-slate-800/80 font-mono text-[11px]">
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Protocol:</span>
+                      <span className="text-slate-200">{conn.accessMethod}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Rate Limit:</span>
+                      <span className="text-slate-400">{conn.rateLimitInfo}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Active Listings:</span>
+                      <span className="text-sky-400 tabular-nums">{conn.activeJobsCount} jobs</span>
+                    </div>
+                  </div>
                 </div>
 
-                <p className="text-xs text-slate-400 leading-relaxed">{conn.description}</p>
-
-                <div className="space-y-1 text-xs pt-1 border-t border-slate-800/80 font-mono text-[11px]">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Protocol:</span>
-                    <span className="text-slate-200">{conn.accessMethod}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Rate Limit:</span>
-                    <span className="text-slate-400">{conn.rateLimitInfo}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Active Listings:</span>
-                    <span className="text-sky-400 tabular-nums">{conn.activeJobsCount} jobs</span>
-                  </div>
+                <div className="text-[11px] text-slate-500 font-mono pt-2 border-t border-slate-800/60">
+                  Last checked: {conn.lastSyncTimestamp ? new Date(conn.lastSyncTimestamp).toLocaleTimeString() : 'Active'}
                 </div>
               </div>
-
-              <div className="text-[11px] text-slate-500 font-mono pt-2 border-t border-slate-800/60">
-                Last checked: {conn.lastSyncTimestamp ? new Date(conn.lastSyncTimestamp).toLocaleTimeString() : 'Active'}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Dataset Ingestion Interface (JSON / CSV) with Deduplication */}
