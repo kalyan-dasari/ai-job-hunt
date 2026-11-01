@@ -1093,12 +1093,152 @@ app.post('/api/emails/:id/apply-status', (req: Request, res: Response) => {
   }
 });
 
-// Connectors Status
+// Connectors Status & Sync
+export function syncConnectorsFromRegistry(): void {
+  try {
+    const adapters = sourceRegistry.getAll();
+    const existingConnectors = connectorsRepository.getAllConnectors();
+    const existingMap = new Map(existingConnectors.map((c) => [c.id, c]));
+
+    for (const adapter of adapters) {
+      const existing = existingMap.get(adapter.id);
+      const connector: SourceConnector = {
+        id: adapter.id,
+        name: adapter.source,
+        displayName: adapter.displayName,
+        description: adapter.description,
+        status: adapter.status as any,
+        accessMethod: adapter.capabilities.authType === 'None' ? 'Authorized Feed' : 'Direct API',
+        requiresAuth: adapter.capabilities.requiresAuthentication,
+        termsCompliant: true,
+        rateLimitInfo: adapter.capabilities.rateLimitDescription,
+        lastSyncTimestamp: existing?.lastSyncTimestamp || adapter.lastChecked,
+        activeJobsCount: existing?.activeJobsCount || adapter.activeJobsCount || 0,
+        setupInstructions: adapter.capabilities.termsComplianceNote,
+      };
+      connectorsRepository.saveConnector(connector);
+    }
+  } catch (err) {
+    console.error('Error syncing connectors from registry:', err);
+  }
+}
+
 app.get('/api/connectors', (_req: Request, res: Response) => {
   try {
+    syncConnectorsFromRegistry();
     res.json(connectorsRepository.getAllConnectors());
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to load connectors', details: err.message });
+  }
+});
+
+// Sources list
+app.get('/api/sources', (_req: Request, res: Response) => {
+  try {
+    syncConnectorsFromRegistry();
+    res.json(sourceRegistry.getAllMetadata());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load source adapters', details: err.message });
+  }
+});
+
+// Single source details
+app.get('/api/sources/:id', (req: Request, res: Response) => {
+  try {
+    const adapter = sourceRegistry.get(req.params.id);
+    if (!adapter) {
+      res.status(404).json({ error: `Source adapter '${req.params.id}' not found` });
+      return;
+    }
+    res.json(sourceRegistry.getMetadata(adapter));
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve source adapter', details: err.message });
+  }
+});
+
+// Test source adapter connection
+app.post('/api/sources/:id/test', async (req: Request, res: Response) => {
+  try {
+    const result = await sourceRegistry.testConnection(req.params.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Source connection test failed', details: err.message });
+  }
+});
+
+// Trigger discovery & ingestion run
+app.post('/api/ingestion/run', async (req: Request, res: Response) => {
+  try {
+    if (ingestionService.isRunning()) {
+      res.status(409).json({
+        success: false,
+        error: 'Ingestion is already running. Please wait for the current run to complete.',
+      });
+      return;
+    }
+    const { sourceIds, criteria } = req.body || {};
+    const run = await ingestionService.runIngestion({
+      triggerType: 'manual',
+      sourceIds,
+      criteria,
+    });
+    res.json({ success: true, run });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Ingestion run failed' });
+  }
+});
+
+// Ingestion runs history
+app.get('/api/ingestion/runs', (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+    const runs = ingestionRunsRepository.getRecentRuns(limit);
+    res.json(runs);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load ingestion runs', details: err.message });
+  }
+});
+
+// Single ingestion run
+app.get('/api/ingestion/runs/:id', (req: Request, res: Response) => {
+  try {
+    const run = ingestionRunsRepository.getRunById(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: `Ingestion run '${req.params.id}' not found` });
+      return;
+    }
+    res.json(run);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve ingestion run', details: err.message });
+  }
+});
+
+// Cross-posted sources for a job
+app.get('/api/jobs/:id/sources', (req: Request, res: Response) => {
+  try {
+    const sources = jobSourcesRepository.getSourcesForJob(req.params.id);
+    res.json(sources);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve job sources', details: err.message });
+  }
+});
+
+// Update freshness status
+app.patch('/api/jobs/:id/freshness', (req: Request, res: Response) => {
+  try {
+    const { status } = req.body;
+    if (!status) {
+      res.status(400).json({ error: 'status is required' });
+      return;
+    }
+    const updated = jobsRepository.updateFreshness(req.params.id, status);
+    if (!updated) {
+      res.status(404).json({ error: `Job '${req.params.id}' not found` });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update job freshness', details: err.message });
   }
 });
 
@@ -1157,6 +1297,7 @@ app.get('/api/export', (req: Request, res: Response) => {
 async function startServer() {
   initDatabase();
   console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
+  syncConnectorsFromRegistry();
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));

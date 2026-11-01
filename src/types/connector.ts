@@ -1,6 +1,6 @@
 import { JobSource } from './job';
 
-export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted';
+export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted' | 'Awaiting Credentials';
 
 export interface SourceConnector {
   id: string;
