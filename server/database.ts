@@ -12,6 +12,7 @@ import {
   PreparedMaterials,
 } from '../src/types/application';
 import { SourceConnector } from '../src/types/connector';
+import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
 let dbInstance: DatabaseSync | null = null;
@@ -285,6 +286,60 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
         CREATE INDEX IF NOT EXISTS idx_activity_logs_action_type ON activity_logs(action_type);
+      `);
+    },
+  },
+  {
+    version: 2,
+    name: '002_job_discovery_and_sources',
+    up: (db: DatabaseSync) => {
+      // 1. Add freshness and verification columns to jobs table
+      try {
+        db.exec("ALTER TABLE jobs ADD COLUMN freshness_status TEXT NOT NULL DEFAULT 'Active';");
+      } catch (err: any) {
+        // column may already exist
+      }
+      try {
+        db.exec("ALTER TABLE jobs ADD COLUMN expiry_date TEXT;");
+      } catch (err: any) {}
+      try {
+        db.exec("ALTER TABLE jobs ADD COLUMN last_verified_at TEXT;");
+      } catch (err: any) {}
+
+      // 2. Ingestion runs table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ingestion_runs (
+          id TEXT PRIMARY KEY,
+          trigger_type TEXT NOT NULL DEFAULT 'manual',
+          status TEXT NOT NULL DEFAULT 'running',
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          sources_checked TEXT NOT NULL DEFAULT '[]',
+          jobs_found INTEGER NOT NULL DEFAULT 0,
+          jobs_added INTEGER NOT NULL DEFAULT 0,
+          duplicates_filtered INTEGER NOT NULL DEFAULT 0,
+          errors TEXT NOT NULL DEFAULT '[]',
+          details TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ingestion_runs_started_at ON ingestion_runs(started_at);
+        CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON ingestion_runs(status);
+      `);
+
+      // 3. Job Sources (provenance and cross-source references)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS job_sources (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          source_job_id TEXT,
+          source_url TEXT NOT NULL,
+          discovered_at TEXT NOT NULL,
+          metadata TEXT,
+          FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_sources_job_id ON job_sources(job_id);
+        CREATE INDEX IF NOT EXISTS idx_job_sources_lookup ON job_sources(source_name, source_job_id);
       `);
     },
   },
@@ -618,6 +673,9 @@ function mapJobFromRow(row: any): Job {
     isDismissed: intToBool(row.is_dismissed),
     isDuplicate: intToBool(row.is_duplicate),
     duplicateOfId: row.duplicate_of_id || undefined,
+    freshnessStatus: (row.freshness_status as any) || 'Active',
+    expiryDate: row.expiry_date || undefined,
+    lastVerifiedAt: row.last_verified_at || row.last_checked || undefined,
   };
 }
 
@@ -646,6 +704,7 @@ export const jobsRepository = {
         source, source_job_id, original_url, canonical_url, date_posted,
         last_checked, is_startup, startup_info, verification_report,
         match_result, is_saved, is_dismissed, is_duplicate, duplicate_of_id,
+        freshness_status, expiry_date, last_verified_at,
         created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
@@ -654,6 +713,7 @@ export const jobsRepository = {
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
+        ?, ?, ?,
         ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -685,6 +745,9 @@ export const jobsRepository = {
         is_dismissed = excluded.is_dismissed,
         is_duplicate = excluded.is_duplicate,
         duplicate_of_id = excluded.duplicate_of_id,
+        freshness_status = excluded.freshness_status,
+        expiry_date = excluded.expiry_date,
+        last_verified_at = excluded.last_verified_at,
         updated_at = excluded.updated_at
     `);
 
@@ -718,6 +781,9 @@ export const jobsRepository = {
       boolToInt(job.isDismissed),
       boolToInt(job.isDuplicate),
       job.duplicateOfId || null,
+      job.freshnessStatus || 'Active',
+      job.expiryDate || null,
+      job.lastVerifiedAt || job.lastChecked || now,
       now,
       now
     );
@@ -843,6 +909,16 @@ export const jobsRepository = {
         stmt.run(toJson(newMatch, '{}'), now, job.id);
       }
     });
+  },
+
+  updateFreshness(id: string, freshnessStatus: string): Job | null {
+    const db = getDatabase();
+    db.prepare('UPDATE jobs SET freshness_status = ?, updated_at = ? WHERE id = ?').run(
+      freshnessStatus,
+      new Date().toISOString(),
+      id
+    );
+    return this.getJobById(id);
   },
 };
 
@@ -1377,6 +1453,7 @@ export const exportRepository = {
     notifications: NotificationItem[];
     connectors: SourceConnector[];
     activityLogs: any[];
+    ingestionRuns: IngestionRunRecord[];
     exportedAt: string;
   } {
     const cand = candidateRepository.getProfile();
@@ -1389,7 +1466,150 @@ export const exportRepository = {
       notifications: notificationsRepository.getAllNotifications(),
       connectors: connectorsRepository.getAllConnectors(),
       activityLogs: activityLogsRepository.getRecent(100),
+      ingestionRuns: ingestionRunsRepository.getRecentRuns(100),
       exportedAt: new Date().toISOString(),
     };
+  },
+};
+
+// 9. INGESTION RUNS REPOSITORY
+export const ingestionRunsRepository = {
+  createRun(run: IngestionRunRecord): IngestionRunRecord {
+    const db = getDatabase();
+    const stmt = db.prepare(`
+      INSERT INTO ingestion_runs (
+        id, trigger_type, status, started_at, completed_at,
+        sources_checked, jobs_found, jobs_added, duplicates_filtered,
+        errors, details, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      run.id,
+      run.triggerType,
+      run.status,
+      run.startedAt,
+      run.completedAt || null,
+      toJson(run.sourcesChecked, '[]'),
+      run.jobsFound,
+      run.jobsAdded,
+      run.duplicatesFiltered,
+      toJson(run.errors, '[]'),
+      toJson(run.details, null),
+      run.createdAt
+    );
+    return run;
+  },
+
+  updateRun(id: string, updates: Partial<IngestionRunRecord>): IngestionRunRecord | null {
+    const db = getDatabase();
+    const current = this.getRunById(id);
+    if (!current) return null;
+
+    const merged = { ...current, ...updates };
+    const stmt = db.prepare(`
+      UPDATE ingestion_runs
+      SET status = ?, completed_at = ?, sources_checked = ?,
+          jobs_found = ?, jobs_added = ?, duplicates_filtered = ?,
+          errors = ?, details = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      merged.status,
+      merged.completedAt || null,
+      toJson(merged.sourcesChecked, '[]'),
+      merged.jobsFound,
+      merged.jobsAdded,
+      merged.duplicatesFiltered,
+      toJson(merged.errors, '[]'),
+      toJson(merged.details, null),
+      id
+    );
+    return this.getRunById(id);
+  },
+
+  getRunById(id: string): IngestionRunRecord | null {
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM ingestion_runs WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      triggerType: row.trigger_type,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      sourcesChecked: fromJson(row.sources_checked, []),
+      jobsFound: Number(row.jobs_found || 0),
+      jobsAdded: Number(row.jobs_added || 0),
+      duplicatesFiltered: Number(row.duplicates_filtered || 0),
+      errors: fromJson(row.errors, []),
+      details: fromJson(row.details, undefined),
+      createdAt: row.created_at,
+    };
+  },
+
+  getRecentRuns(limit: number = 20): IngestionRunRecord[] {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM ingestion_runs ORDER BY started_at DESC LIMIT ?').all(limit) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      triggerType: row.trigger_type,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      sourcesChecked: fromJson(row.sources_checked, []),
+      jobsFound: Number(row.jobs_found || 0),
+      jobsAdded: Number(row.jobs_added || 0),
+      duplicatesFiltered: Number(row.duplicates_filtered || 0),
+      errors: fromJson(row.errors, []),
+      details: fromJson(row.details, undefined),
+      createdAt: row.created_at,
+    }));
+  },
+
+  countRuns(): number {
+    const db = getDatabase();
+    const row = db.prepare('SELECT COUNT(*) as count FROM ingestion_runs').get() as any;
+    return row ? Number(row.count) : 0;
+  },
+};
+
+// 10. JOB SOURCES REPOSITORY
+export const jobSourcesRepository = {
+  addSourceReference(ref: JobSourceReference): void {
+    const db = getDatabase();
+    const stmt = db.prepare(`
+      INSERT INTO job_sources (id, job_id, source_name, source_job_id, source_url, discovered_at, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      ref.id || `jsrc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      ref.jobId,
+      ref.sourceName,
+      ref.sourceJobId || null,
+      ref.sourceUrl,
+      ref.discoveredAt || new Date().toISOString(),
+      toJson(ref.rawMetadata, null)
+    );
+  },
+
+  getSourcesForJob(jobId: string): JobSourceReference[] {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM job_sources WHERE job_id = ? ORDER BY discovered_at DESC').all(jobId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      jobId: row.job_id,
+      sourceName: row.source_name as any,
+      sourceJobId: row.source_job_id || undefined,
+      sourceUrl: row.source_url,
+      discoveredAt: row.discovered_at,
+      rawMetadata: fromJson(row.metadata, undefined),
+    }));
+  },
+
+  findExistingJobByExternalId(sourceName: string, sourceJobId: string): string | null {
+    if (!sourceJobId) return null;
+    const db = getDatabase();
+    const row = db.prepare('SELECT job_id FROM job_sources WHERE source_name = ? AND source_job_id = ? LIMIT 1').get(sourceName, sourceJobId) as any;
+    return row ? row.job_id : null;
   },
 };
