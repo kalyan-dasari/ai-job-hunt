@@ -246,47 +246,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-4">
-          <div className="text-xs text-sky-400 font-medium">High Fit (85%+)</div>
-          <div className="text-2xl font-bold text-sky-400 mt-1.5 tabular-nums font-mono">
-            {highMatches}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Profile-aligned</div>
-        </div>
-
-        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-4">
-          <div className="text-xs text-slate-400 font-medium">Saved Opportunities</div>
-          <div className="text-2xl font-bold text-white mt-1.5 tabular-nums font-mono">
-            {savedCount}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Bookmarked</div>
-        </div>
-
-        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-4">
-          <div className="text-xs text-slate-400 font-medium">Submitted</div>
-          <div className="text-2xl font-bold text-white mt-1.5 tabular-nums font-mono">
-            {submittedCount}
-          </div>
-          <div className="text-[11px] text-emerald-400/90 mt-1">Confirmed applications</div>
-        </div>
-
-        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-4">
-          <div className="text-xs text-indigo-400 font-medium">Interviews</div>
-          <div className="text-2xl font-bold text-indigo-400 mt-1.5 tabular-nums font-mono">
-            {interviewsCount}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Active rounds</div>
-        </div>
-
-        <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-4">
-          <div className="text-xs text-amber-400 font-medium">Follow-ups Due</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1.5 tabular-nums font-mono">
-            {followUpsDueCount}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Next 3 days</div>
-        </div>
-      </div>
-
       {/* Main Two-Column Workflow Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column (2 spans): Top Matched & Verified Jobs */}
@@ -308,95 +267,123 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {topOpportunities.map((job) => {
-              const score = job.matchResult?.overallScore || 0;
-              const isVerified = job.verificationReport.status === 'Verified';
+            {topOpportunities.length > 0 ? (
+              topOpportunities.map((job) => {
+                const score = job.matchResult?.overallScore || 0;
+                const isVerified = job.verificationReport.status === 'Verified';
 
-              return (
-                <div
-                  key={job.id}
-                  className="bg-[#111726] border border-slate-800/80 hover:border-slate-700/80 rounded-xl p-5 transition-all group"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap text-xs text-slate-400">
-                        <span className="font-semibold text-white text-sm">{job.company}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{job.location}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{job.workArrangement}</span>
-                        <span aria-hidden="true">·</span>
-                        <span className="text-slate-300">{job.source}</span>
-                      </div>
-
-                      <h3
-                        onClick={() => onSelectJob(job)}
-                        className="text-base font-semibold text-white hover:text-sky-400 cursor-pointer transition-colors"
-                      >
-                        {job.title}
-                      </h3>
-
-                      {job.salary?.displayText && (
-                        <div className="text-xs text-emerald-400 font-mono">
-                          {job.salary.displayText}
+                return (
+                  <div
+                    key={job.id}
+                    className="bg-[#111726] border border-slate-800/80 hover:border-slate-700/80 rounded-xl p-5 transition-all group"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap text-xs text-slate-400">
+                          <span className="font-semibold text-white text-sm">{job.company}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{job.location}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{job.workArrangement}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-slate-300">{job.source}</span>
                         </div>
-                      )}
 
-                      {/* Required skills unboxed inline */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 pt-1">
-                        <span className="text-slate-500">Skills:</span>
-                        {job.requiredSkills.slice(0, 4).map((skill, idx) => (
-                          <span key={idx} className="text-slate-300">
-                            {skill}
-                            {idx < Math.min(3, job.requiredSkills.length - 1) ? ' · ' : ''}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Match Score & Action */}
-                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 shrink-0">
-                      <div className="text-right">
-                        <div className="flex items-center gap-1.5 justify-end">
-                          <span className="text-xs text-slate-400">Match Fit:</span>
-                          <span className="text-sm font-bold text-sky-400 font-mono tabular-nums">
-                            {score}%
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 mt-0.5 justify-end text-[11px]">
-                          {isVerified ? (
-                            <span className="text-emerald-400 flex items-center gap-1">
-                              <ShieldCheck className="w-3 h-3" />
-                              <span>Verified Requisition</span>
-                            </span>
-                          ) : (
-                            <span className="text-amber-400 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              <span>Needs Review</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
+                        <h3
                           onClick={() => onSelectJob(job)}
-                          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+                          className="text-base font-semibold text-white hover:text-sky-400 cursor-pointer transition-colors"
                         >
-                          Details
-                        </button>
-                        <button
-                          onClick={() => onPrepareApplication(job)}
-                          className="px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors shadow-sm"
-                        >
-                          Prepare Application
-                        </button>
+                          {job.title}
+                        </h3>
+
+                        {job.salary?.displayText && (
+                          <div className="text-xs text-emerald-400 font-mono">
+                            {job.salary.displayText}
+                          </div>
+                        )}
+
+                        {/* Required skills unboxed inline */}
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 pt-1">
+                          <span className="text-slate-500">Skills:</span>
+                          {job.requiredSkills.slice(0, 4).map((skill, idx) => (
+                            <span key={idx} className="text-slate-300">
+                              {skill}
+                              {idx < Math.min(3, job.requiredSkills.length - 1) ? ' · ' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Match Score & Action */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 shrink-0">
+                        <div className="text-right">
+                          <div className="flex items-center gap-1.5 justify-end">
+                            <span className="text-xs text-slate-400">Match Fit:</span>
+                            <span className="text-sm font-bold text-sky-400 font-mono tabular-nums">
+                              {score}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-0.5 justify-end text-[11px]">
+                            {isVerified ? (
+                              <span className="text-emerald-400 flex items-center gap-1">
+                                <ShieldCheck className="w-3 h-3" />
+                                <span>Verified Requisition</span>
+                              </span>
+                            ) : (
+                              <span className="text-amber-400 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                <span>Needs Review</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onSelectJob(job)}
+                            className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+                          >
+                            Details
+                          </button>
+                          <button
+                            onClick={() => onPrepareApplication(job)}
+                            className="px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors shadow-sm"
+                          >
+                            Prepare Application
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
+                );
+              })
+            ) : (
+              <div className="bg-[#111726] border border-slate-800/80 rounded-xl p-8 text-center space-y-3">
+                <Briefcase className="w-8 h-8 text-slate-600 mx-auto" />
+                <h3 className="text-sm font-semibold text-white">No Job Opportunities in Catalog</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  {!hasProfile
+                    ? 'Start by uploading your resume or import listings in the Sources tab to see matched recommendations.'
+                    : 'Import job listings from CSV or JSON in the Sources tab to calculate personalized matches against your profile.'}
+                </p>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  {!hasProfile && (
+                    <button
+                      onClick={() => onNavigateTab('resume')}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors"
+                    >
+                      Upload Resume
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onNavigateTab('sources')}
+                    className="px-3.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    Import Jobs
+                  </button>
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -426,18 +413,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   >
                     <div className="flex items-center justify-between text-white font-medium">
                       <span>{app.company}</span>
-                      <span className="text-indigo-400 font-mono text-[11px]">Round 2</span>
+                      <span className="text-indigo-400 font-mono text-[11px]">{app.status}</span>
                     </div>
                     <div className="text-slate-400">{app.jobTitle}</div>
                     <div className="text-emerald-400 font-mono text-[11px] pt-0.5">
-                      {app.statusReason || 'Technical discussion scheduled'}
+                      {app.statusReason || 'Interview stage active'}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-slate-500 py-3 text-center">
-                No active interview rounds scheduled currently.
+              <div className="text-xs text-slate-500 py-6 text-center space-y-2">
+                <Calendar className="w-6 h-6 text-slate-600 mx-auto" />
+                <p>No active interview rounds scheduled currently.</p>
+                <p className="text-[11px] text-slate-600">
+                  Applications moved to "Interview" stage in your tracker will appear here.
+                </p>
               </div>
             )}
           </div>
@@ -452,20 +443,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="space-y-3.5">
-              {recentActivities.slice(0, 5).map((act) => (
-                <div key={act.id} className="text-xs space-y-1 relative pl-4 border-l border-slate-800">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-slate-200">{act.company}</span>
-                    <span className="text-slate-500 font-mono">
-                      {new Date(act.timestamp).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
+              {recentActivities.length > 0 ? (
+                recentActivities.slice(0, 5).map((act) => (
+                  <div key={act.id} className="text-xs space-y-1 relative pl-4 border-l border-slate-800">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-200">{act.company}</span>
+                      <span className="text-slate-500 font-mono">
+                        {new Date(act.timestamp).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                    <div className="text-slate-400 line-clamp-2">{act.note}</div>
                   </div>
-                  <div className="text-slate-400 line-clamp-2">{act.note}</div>
+                ))
+              ) : (
+                <div className="text-xs text-slate-500 py-6 text-center space-y-2">
+                  <Clock className="w-6 h-6 text-slate-600 mx-auto" />
+                  <p>No recent application activity.</p>
+                  <p className="text-[11px] text-slate-600">
+                    Actions you take (saving, applying, status updates) will be logged here.
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
