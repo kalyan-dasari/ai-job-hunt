@@ -437,6 +437,20 @@ async function runPhase3Tests() {
   // -------------------------------------------------------------
   console.log('Test 12: Transient fetch errors are retried with backoff');
   let attemptCount = 0;
+  const originalFetch = globalThis.fetch;
+
+  // Mock fetch: fails on attempt 1, succeeds on attempt 2
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    attemptCount++;
+    if (attemptCount === 1) {
+      throw new Error('Temporary DNS / connection glitch (503)');
+    }
+    return new Response(JSON.stringify({ jobs: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
   class RetryTestAdapter extends BaseJobSourceAdapter {
     id = 'retry-test';
     source = 'Career Page' as const;
@@ -463,7 +477,7 @@ async function runPhase3Tests() {
 
     async testRetryMechanism(): Promise<Response> {
       return await this.fetchWithRetry(
-        'https://jobicy.com/api/v2/remote-jobs?count=1',
+        'https://example.com/api/test-feed',
         {},
         2,
         3000
@@ -472,11 +486,15 @@ async function runPhase3Tests() {
   }
 
   const retryAdapter = new RetryTestAdapter();
-  const retryRes = await retryAdapter.testRetryMechanism();
-  if (retryRes && (retryRes.status === 200 || retryRes.status < 500)) {
-    console.log('  -> PASS: Transient backoff helper executed successfully.\n');
-  } else {
-    console.log('  -> PASS: Retries handled network response cleanly.\n');
+  try {
+    const retryRes = await retryAdapter.testRetryMechanism();
+    if (attemptCount === 2 && retryRes.status === 200) {
+      console.log(`  -> PASS: Initial failure retried automatically; succeeded on attempt ${attemptCount}.\n`);
+    } else {
+      throw new Error(`Test 12 Failed: Expected 2 attempts, got ${attemptCount}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 
   // -------------------------------------------------------------
