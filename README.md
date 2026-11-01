@@ -70,7 +70,21 @@ ai-job-hunt/
 ├── data/                          # SQLite persistent database directory
 │   └── jobpilot.db               # Local SQLite database (git-ignored)
 ├── server/
-│   └── database.ts               # SQLite connection, migrations & typed repositories
+│   ├── database.ts               # SQLite connection, migrations (001, 002) & typed repositories
+│   ├── matching.ts               # 6D deterministic match evaluator
+│   └── job-sources/              # Phase 3 modular ingestion architecture
+│       ├── types.ts              # Common adapter contracts, raw records & runs
+│       ├── normalizer.ts         # Standard schema mapper & URL sanitizer
+│       ├── deduplicator.ts       # Cross-source deduplication & discipline guardrails
+│       ├── registry.ts           # Central source adapter registry & tester
+│       ├── scheduler.ts          # Ingestion service, concurrency lock & cron scheduler
+│       └── sources/              # Specialized source connectors
+│           ├── base-adapter.ts   # Abstract adapter with exponential retry backoff
+│           ├── career-pages.ts   # Active corporate career & syndication feed
+│           ├── naukri-adapter.ts # Naukri Enterprise RMS Partner adapter
+│           ├── linkedin-adapter.ts # LinkedIn Talent Solutions / RSC adapter
+│           ├── internshala-adapter.ts # Internshala Recruiter feed adapter
+│           └── foundit-adapter.ts # Foundit (Monster) Recruiter API adapter
 ├── src/
 │   ├── api/
 │   │   └── client.ts              # Frontend client for backend services
@@ -176,6 +190,7 @@ npm start
 | `npm run lint` | Runs TypeScript type checking without emitting files |
 | `npm test` | Runs the 14-test SQLite persistence regression suite |
 | `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
+| `npm run test:discovery` | Runs the 17-test Phase 3 real discovery & deduplication engine suite |
 
 ---
 
