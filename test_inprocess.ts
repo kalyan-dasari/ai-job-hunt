@@ -47,7 +47,7 @@ function callApi(method: string, url: string, body?: any): Promise<{ status: num
       },
     };
 
-    app.handle(req, res, (err: any) => {
+    (app as any).handle(req, res, (err: any) => {
       if (err) reject(err);
       else resolve({ status: res.statusCode, body: resBody });
     });
@@ -250,6 +250,7 @@ B.S. Computer Engineering, UT Austin (2021)
   console.log('====================================================');
   console.log('>>> ALL 10 TESTS EXECUTED AND PASSED SUCCESSFULLY <<<');
   console.log('====================================================');
+  process.exit(0);
 }
 
 run().catch((err) => {
