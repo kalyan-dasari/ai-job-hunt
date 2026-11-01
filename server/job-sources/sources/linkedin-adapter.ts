@@ -115,3 +115,4 @@ export class LinkedInAdapter extends BaseJobSourceAdapter {
     }
   }
 }
+

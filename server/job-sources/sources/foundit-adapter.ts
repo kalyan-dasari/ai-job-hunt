@@ -88,3 +88,4 @@ export class FounditAdapter extends BaseJobSourceAdapter {
     }
   }
 }
+
