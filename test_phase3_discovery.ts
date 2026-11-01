@@ -293,6 +293,8 @@ async function runPhase3Tests() {
     company: 'Google LLC',
     title: 'Frontend Software Engineer (Angular / TypeScript)',
     location: 'Bangalore, India',
+    originalUrl: 'https://careers.google.com/jobs/results/101',
+    canonicalUrl: 'https://careers.google.com/jobs/results/101',
   };
 
   const backendJob: Job = {
@@ -301,6 +303,8 @@ async function runPhase3Tests() {
     company: 'Google LLC',
     title: 'Backend Distributed Systems Engineer (Go / C++)',
     location: 'Bangalore, India',
+    originalUrl: 'https://careers.google.com/jobs/results/102',
+    canonicalUrl: 'https://careers.google.com/jobs/results/102',
   };
 
   const dataScientistJob: Job = {
@@ -309,6 +313,8 @@ async function runPhase3Tests() {
     company: 'Google LLC',
     title: 'Lead Data Scientist - Machine Learning',
     location: 'Bangalore, India',
+    originalUrl: 'https://careers.google.com/jobs/results/103',
+    canonicalUrl: 'https://careers.google.com/jobs/results/103',
   };
 
   const feVsBe = deduplicator.evaluate(backendJob, [frontendJob]);

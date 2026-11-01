@@ -97,6 +97,15 @@ export class JobDeduplicator {
           continue; // Genuinely different disciplines!
         }
 
+        const isDataA = incoming.title.toLowerCase().includes('data') || incoming.title.toLowerCase().includes('machine learning') || incoming.title.toLowerCase().includes('ml') || incoming.title.toLowerCase().includes('analytics');
+        const isDataB = existing.title.toLowerCase().includes('data') || existing.title.toLowerCase().includes('machine learning') || existing.title.toLowerCase().includes('ml') || existing.title.toLowerCase().includes('analytics');
+        const isSweA = incoming.title.toLowerCase().includes('engineer') || incoming.title.toLowerCase().includes('developer');
+        const isSweB = existing.title.toLowerCase().includes('engineer') || existing.title.toLowerCase().includes('developer');
+
+        if ((isDataA && !isDataB && (isFrontendB || isBackendB)) || (isDataB && !isDataA && (isFrontendA || isBackendA))) {
+          continue; // Data Scientist vs Software Engineer!
+        }
+
         // B) Distinct seniority levels (e.g. Intern vs Lead/Principal) must NEVER merge
         const isInternA = incoming.experienceLevel === 'Intern';
         const isLeadA = incoming.experienceLevel === 'Lead';
