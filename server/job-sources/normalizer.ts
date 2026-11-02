@@ -68,7 +68,7 @@ export const INDIAN_TECH_CITIES = [
   'bengaluru', 'bangalore', 'hyderabad', 'chennai', 'pune', 'mumbai',
   'delhi', 'noida', 'gurgaon', 'gurugram', 'new delhi', 'kolkata',
   'ahmedabad', 'chandigarh', 'kochi', 'coimbatore', 'jaipur', 'indore',
-  'thiruvananthapuram', 'mysore', 'nagpur', 'bhubaneswar', 'india', 'in'
+  'thiruvananthapuram', 'mysore', 'nagpur', 'bhubaneswar', 'india'
 ];
 
 export function isIndiaEligibleJob(
