@@ -348,7 +348,7 @@ async function runPhase3Tests() {
         endDate: 'Present',
         current: true,
         description: 'Modern full stack development with React, TypeScript and Node.js.',
-        skills: ['TypeScript', 'React', 'Node.js', 'Docker'],
+        skillsUsed: ['TypeScript', 'React', 'Node.js', 'Docker'],
       },
     ],
   });
