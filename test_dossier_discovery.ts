@@ -18,7 +18,7 @@ import { normalizeRawJob, isIndiaEligibleJob } from './server/job-sources/normal
 import { calculateDossierMatch } from './server/matching.ts';
 import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
 import { ingestionService } from './server/job-sources/scheduler.ts';
-import { CandidateProfile } from './src/types/candidate.ts';
+import { CandidateProfile, emptyCandidateProfile } from './src/types/candidate.ts';
 import { Job } from './src/types/job.ts';
 
 const TEST_DB = path.resolve(process.cwd(), 'data', 'test_dossier_suite.db');
