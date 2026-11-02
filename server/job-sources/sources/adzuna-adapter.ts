@@ -6,6 +6,43 @@ function stripHtml(html: string = ''): string {
   return html.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim();
 }
 
+export function normalizeAdzunaJob(item: any): RawSourceJob {
+  const cleanTitle = stripHtml(item.title);
+  const cleanDesc = stripHtml(item.description);
+  const locationName = item.location?.display_name || (Array.isArray(item.location?.area) ? item.location.area.join(', ') : 'India');
+  const isRemote = locationName.toLowerCase().includes('remote') || cleanTitle.toLowerCase().includes('remote');
+
+  const isIntern = cleanTitle.toLowerCase().includes('intern') || cleanTitle.toLowerCase().includes('trainee');
+  const isSenior = cleanTitle.toLowerCase().includes('senior') || cleanTitle.toLowerCase().includes('lead');
+  const isEntry = isIntern || cleanTitle.toLowerCase().includes('fresher') || cleanTitle.toLowerCase().includes('entry') || cleanTitle.toLowerCase().includes('junior');
+
+  const expLevel = isIntern ? 'Intern' : isEntry ? 'Entry' : isSenior ? 'Senior' : 'Mid';
+  const minYears = isIntern || isEntry ? 0 : isSenior ? 5 : 2;
+
+  return {
+    externalId: item.id ? String(item.id) : undefined,
+    title: cleanTitle || 'Software Engineer',
+    company: item.company?.display_name ? stripHtml(item.company.display_name) : 'Employer',
+    location: locationName,
+    workArrangement: isRemote ? 'Remote' : 'Hybrid',
+    employmentType: isIntern ? 'Internship' : item.contract_time === 'part_time' ? 'Part-time' : item.contract_type === 'contract' ? 'Contract' : 'Full-time',
+    experienceLevel: expLevel,
+    minExpYears: minYears,
+    description: cleanDesc,
+    salaryMin: item.salary_min ? Number(item.salary_min) : undefined,
+    salaryMax: item.salary_max ? Number(item.salary_max) : undefined,
+    salaryCurrency: 'INR',
+    salaryText: item.salary_min && item.salary_max ? `₹${item.salary_min.toLocaleString()} - ₹${item.salary_max.toLocaleString()}` : undefined,
+    url: item.redirect_url || 'https://www.adzuna.in',
+    postedDate: item.created || new Date().toISOString(),
+    sourceName: 'Adzuna',
+    rawMetadata: {
+      category: item.category?.label,
+      attribution: 'Jobs provided by Adzuna (India)',
+    },
+  };
+}
+
 export class AdzunaAdapter extends BaseJobSourceAdapter {
   id = 'adzuna-api';
   source: JobSourceId = 'Adzuna';
@@ -156,40 +193,7 @@ export class AdzunaAdapter extends BaseJobSourceAdapter {
       const rawJobs: RawSourceJob[] = [];
 
       for (const item of items) {
-        const cleanTitle = stripHtml(item.title);
-        const cleanDesc = stripHtml(item.description);
-        const locationName = item.location?.display_name || (Array.isArray(item.location?.area) ? item.location.area.join(', ') : 'India');
-        const isRemote = locationName.toLowerCase().includes('remote') || cleanTitle.toLowerCase().includes('remote');
-
-        const isIntern = cleanTitle.toLowerCase().includes('intern') || cleanTitle.toLowerCase().includes('trainee');
-        const isSenior = cleanTitle.toLowerCase().includes('senior') || cleanTitle.toLowerCase().includes('lead');
-        const isEntry = isIntern || cleanTitle.toLowerCase().includes('fresher') || cleanTitle.toLowerCase().includes('entry') || cleanTitle.toLowerCase().includes('junior');
-
-        const expLevel = isIntern ? 'Intern' : isEntry ? 'Entry' : isSenior ? 'Senior' : 'Mid';
-        const minYears = isIntern || isEntry ? 0 : isSenior ? 5 : 2;
-
-        rawJobs.push({
-          externalId: item.id ? String(item.id) : undefined,
-          title: cleanTitle || 'Software Engineer',
-          company: item.company?.display_name ? stripHtml(item.company.display_name) : 'Employer',
-          location: locationName,
-          workArrangement: isRemote ? 'Remote' : 'Hybrid',
-          employmentType: isIntern ? 'Internship' : item.contract_time === 'part_time' ? 'Part-time' : item.contract_type === 'contract' ? 'Contract' : 'Full-time',
-          experienceLevel: expLevel,
-          minExpYears: minYears,
-          description: cleanDesc,
-          salaryMin: item.salary_min ? Number(item.salary_min) : undefined,
-          salaryMax: item.salary_max ? Number(item.salary_max) : undefined,
-          salaryCurrency: 'INR',
-          salaryText: item.salary_min && item.salary_max ? `₹${item.salary_min.toLocaleString()} - ₹${item.salary_max.toLocaleString()}` : undefined,
-          url: item.redirect_url || 'https://www.adzuna.in',
-          postedDate: item.created || new Date().toISOString(),
-          sourceName: 'Adzuna',
-          rawMetadata: {
-            category: item.category?.label,
-            attribution: 'Jobs provided by Adzuna (India)',
-          },
-        });
+        rawJobs.push(normalizeAdzunaJob(item));
       }
 
       // Cache for 24 hours

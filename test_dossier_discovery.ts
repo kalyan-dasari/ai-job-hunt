@@ -14,7 +14,7 @@ import {
 import { sourceRegistry } from './server/job-sources/registry.ts';
 import { normalizeJSearchJob } from './server/job-sources/sources/jsearch-adapter.ts';
 import { normalizeAdzunaJob } from './server/job-sources/sources/adzuna-adapter.ts';
-import { isIndiaEligibleJob } from './server/job-sources/normalizer.ts';
+import { normalizeRawJob, isIndiaEligibleJob } from './server/job-sources/normalizer.ts';
 import { calculateDossierMatch } from './server/matching.ts';
 import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
 import { ingestionService } from './server/job-sources/scheduler.ts';
@@ -126,7 +126,8 @@ async function runDossierDiscoveryTests() {
     contract_time: 'full_time',
   };
 
-  const normalizedAdzuna = normalizeAdzunaJob(mockAdzunaItem);
+  const rawAdzuna = normalizeAdzunaJob(mockAdzunaItem);
+  const normalizedAdzuna = normalizeRawJob(rawAdzuna);
 
   if (
     normalizedAdzuna.company === 'Swiggy' &&

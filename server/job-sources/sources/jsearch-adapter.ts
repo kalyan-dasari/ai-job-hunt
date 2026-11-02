@@ -2,6 +2,47 @@ import { BaseJobSourceAdapter } from './base-adapter.ts';
 import { JobSourceId, SourceStatus, SourceCapability, FetchCriteria, FetchResult, RawSourceJob } from '../types.ts';
 import { apiUsageRepository, queryCacheRepository } from '../../database.ts';
 
+export function normalizeJSearchJob(item: any): RawSourceJob {
+  const isRemote = Boolean(item.job_is_remote);
+  const city = item.job_city || '';
+  const state = item.job_state || '';
+  const country = item.job_country || 'India';
+  const locationStr = [city, state, country].filter(Boolean).join(', ') || (isRemote ? 'Remote, India' : 'India');
+
+  const noExp = Boolean(item.job_required_experience?.no_experience_required);
+  const expMonths = item.job_required_experience?.required_experience_in_months;
+  const minYears = noExp ? 0 : expMonths ? Math.round(expMonths / 12) : undefined;
+  const expLevel = noExp ? 'Entry' : minYears && minYears >= 5 ? 'Senior' : 'Mid';
+
+  return {
+    externalId: item.job_id,
+    title: item.job_title || 'Software Engineer',
+    company: item.employer_name || 'Employer',
+    companyLogo: item.employer_logo || undefined,
+    location: locationStr,
+    workArrangement: isRemote ? 'Remote' : 'Hybrid',
+    employmentType: item.job_employment_type === 'INTERN' ? 'Internship' : 'Full-time',
+    experienceLevel: expLevel,
+    minExpYears: minYears,
+    description: item.job_description || '',
+    skills: Array.isArray(item.job_required_skills) ? item.job_required_skills : [],
+    responsibilities: Array.isArray(item.job_highlights?.Responsibilities)
+      ? item.job_highlights.Responsibilities
+      : [],
+    salaryMin: item.job_min_salary ? Number(item.job_min_salary) : undefined,
+    salaryMax: item.job_max_salary ? Number(item.job_max_salary) : undefined,
+    salaryCurrency: item.job_salary_currency || 'INR',
+    url: item.job_apply_link || item.job_google_link || 'https://example.com/careers',
+    postedDate: item.job_posted_at_datetime_utc || new Date().toISOString(),
+    sourceName: 'JSearch',
+    rawMetadata: {
+      publisher: item.job_publisher,
+      employerWebsite: item.employer_website,
+      noExperienceRequired: noExp,
+    },
+  };
+}
+
 export class JSearchAdapter extends BaseJobSourceAdapter {
   id = 'jsearch-api';
   source: JobSourceId = 'JSearch';
@@ -174,44 +215,7 @@ export class JSearchAdapter extends BaseJobSourceAdapter {
       const rawJobs: RawSourceJob[] = [];
 
       for (const item of items) {
-        const isRemote = Boolean(item.job_is_remote);
-        const city = item.job_city || '';
-        const state = item.job_state || '';
-        const country = item.job_country || 'India';
-        const locationStr = [city, state, country].filter(Boolean).join(', ') || (isRemote ? 'Remote, India' : 'India');
-
-        const noExp = Boolean(item.job_required_experience?.no_experience_required);
-        const expMonths = item.job_required_experience?.required_experience_in_months;
-        const minYears = noExp ? 0 : expMonths ? Math.round(expMonths / 12) : undefined;
-        const expLevel = noExp ? 'Entry' : minYears && minYears >= 5 ? 'Senior' : 'Mid';
-
-        rawJobs.push({
-          externalId: item.job_id,
-          title: item.job_title || 'Software Engineer',
-          company: item.employer_name || 'Employer',
-          companyLogo: item.employer_logo || undefined,
-          location: locationStr,
-          workArrangement: isRemote ? 'Remote' : 'Hybrid',
-          employmentType: item.job_employment_type === 'INTERN' ? 'Internship' : 'Full-time',
-          experienceLevel: expLevel,
-          minExpYears: minYears,
-          description: item.job_description || '',
-          skills: Array.isArray(item.job_required_skills) ? item.job_required_skills : [],
-          responsibilities: Array.isArray(item.job_highlights?.Responsibilities)
-            ? item.job_highlights.Responsibilities
-            : [],
-          salaryMin: item.job_min_salary ? Number(item.job_min_salary) : undefined,
-          salaryMax: item.job_max_salary ? Number(item.job_max_salary) : undefined,
-          salaryCurrency: item.job_salary_currency || 'INR',
-          url: item.job_apply_link || item.job_google_link || 'https://example.com/careers',
-          postedDate: item.job_posted_at_datetime_utc || new Date().toISOString(),
-          sourceName: 'JSearch',
-          rawMetadata: {
-            publisher: item.job_publisher,
-            employerWebsite: item.employer_website,
-            noExperienceRequired: noExp,
-          },
-        });
+        rawJobs.push(normalizeJSearchJob(item));
       }
 
       // Cache for 24 hours to avoid re-requesting same query
