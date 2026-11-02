@@ -339,6 +339,18 @@ async function runPhase3Tests() {
     skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'Docker'],
     preferredRoles: ['Full-Stack Engineer', 'Frontend Engineer'],
     preferredLocations: ['Bangalore', 'Remote'],
+    experience: [
+      {
+        id: 'exp-1',
+        company: 'Cloud Corp',
+        title: 'Senior Full-Stack Engineer',
+        startDate: '2021-01',
+        endDate: 'Present',
+        current: true,
+        description: 'Modern full stack development with React, TypeScript and Node.js.',
+        skills: ['TypeScript', 'React', 'Node.js', 'Docker'],
+      },
+    ],
   });
 
   const customService = new IngestionService();
