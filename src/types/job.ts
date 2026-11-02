@@ -55,6 +55,7 @@ export interface MatchResult {
   recommendations: string[];
   calculatedAt: string;
   // Dossier-style detailed evaluation fields
+  reasoningSummary?: string;
   experienceExplanation?: string;
   isFresherEligible?: boolean;
   fresherExplanation?: string;

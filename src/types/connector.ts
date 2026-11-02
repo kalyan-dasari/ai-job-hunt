@@ -2,6 +2,16 @@ import { JobSource } from './job';
 
 export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted' | 'Awaiting Credentials';
 
+export interface ProviderUsageInfo {
+  provider: string;
+  monthlyQuota: number;
+  requestsUsed: number;
+  requestsRemaining: number;
+  currentMonth: string;
+  lastRequestAt?: string;
+  cachedQueriesCount?: number;
+}
+
 export interface SourceConnector {
   id: string;
   name: JobSource;
@@ -15,4 +25,5 @@ export interface SourceConnector {
   lastSyncTimestamp?: string;
   activeJobsCount: number;
   setupInstructions: string;
+  usage?: ProviderUsageInfo;
 }
