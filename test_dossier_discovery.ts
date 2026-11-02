@@ -183,9 +183,10 @@ async function runDossierDiscoveryTests() {
     projects: [
       {
         id: 'proj-1',
-        name: 'AI Job Tracker',
-        description: 'Built full stack job hunting platform using React, TypeScript and Django.',
-        skills: ['React', 'TypeScript', 'Django'],
+        title: 'AI Job Tracker',
+        summary: 'Built full stack job hunting platform using React, TypeScript and Django.',
+        techStack: ['React', 'TypeScript', 'Django'],
+        highlights: ['Full-stack implementation'],
       },
     ],
     education: [
@@ -194,7 +195,7 @@ async function runDossierDiscoveryTests() {
         institution: 'IIT Hyderabad',
         degree: 'B.Tech in Computer Science',
         field: 'Computer Science',
-        graduationYear: 2026,
+        gradYear: '2026',
       },
     ],
     preferredRoles: ['Software Engineer', 'Frontend Engineer'],
