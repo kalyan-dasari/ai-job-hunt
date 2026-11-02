@@ -175,6 +175,7 @@ async function runDossierDiscoveryTests() {
   // -------------------------------------------------------------
   console.log('Test 5: Dossier match evaluation calculates 6D fit, fresher eligibility, and natural language explanations');
   const candidateFresher: CandidateProfile = {
+    ...emptyCandidateProfile,
     id: 'cand-fresher',
     name: 'Aarav Sharma',
     email: 'aarav.sharma@example.com',
@@ -200,9 +201,7 @@ async function runDossierDiscoveryTests() {
     ],
     preferredRoles: ['Software Engineer', 'Frontend Engineer'],
     preferredLocations: ['Hyderabad', 'Remote'],
-    workArrangements: ['Hybrid', 'Remote'],
-    resumeVersions: [],
-    rawResumeText: '',
+    preferredArrangements: ['Hybrid', 'Remote'],
   };
 
   const entryJob: Job = {
