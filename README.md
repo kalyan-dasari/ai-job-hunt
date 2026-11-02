@@ -6,9 +6,15 @@ JobPilot AI is a full-stack, production-ready web application designed to help j
 
 ## 🚀 Key Highlights & Capabilities
 
-- **Real Job Discovery & Ingestion Engine**: Automatically discovers verified career opportunities via corporate career feeds and modular source adapters with cross-source deduplication, provenance tracking, and freshness lifecycle badges.
+- **Dossier-Style Job Discovery Architecture**: Simple, robust 3-channel discovery model: **JSearch API** (RapidAPI) for primary aggregated searches, **Adzuna API** (official India endpoint) for regional analytics, and **Direct Corporate Career Boards** (Greenhouse, Lever, Ashby, Jobicy) for verified ATS listings.
+- **Central JobDiscoveryAgent**: Automatically parses the candidate's active profile, extracts preferred roles and skills, creates 2-3 focused India search queries, queries active channels, deduplicates across sources, and computes Dossier match scores.
+- **Monthly API Quota Guards & 24-Hour Query Caching**: Durably persisted in SQLite (`api_usage` and `query_cache` tables). Tracks monthly limits (200/month JSearch, 250/month Adzuna) and suppresses redundant external requests with 24-hour TTL caching.
+- **Intelligent Dossier Match Evaluation**: Comprehensive 6-dimensional scoring enhanced with:
+  - **Fresher Eligibility Badge**: Instantly identifies entry-level/fresher roles (`0 yrs experience`).
+  - **Natural Language Experience Explanation**: Explains why the candidate's years align or diverge from requisition requirements.
+  - **Location Compatibility Note**: Highlights compatibility with candidate-preferred Indian hubs (Bengaluru, Hyderabad, Pune, Chennai, Mumbai, Delhi NCR) or India-eligible remote arrangements.
+  - **Missing Skills & Strong Matches**: Clear color-coded badges to guide candidate preparation.
 - **Authenticity & Scam Detection**: Transparent multi-point audits checking company domains, recruiting patterns, absence of advance fees/charges, and legitimate ATS destinations to protect job seekers from employment scams.
-- **6-Dimensional AI Resume Matcher**: Evaluates Technical Skills, Relevant Experience, Project Relevance, Education & Certifications, Location/Arrangement, and Seniority Alignment to generate actionable match percentages and missing skill recommendations.
 - **Guided Application Assistant**: 4-step streamlined preparation workflow generating grounded tailored cover letters, recruiter pitches, custom resume bullet points, and interview screening checklists.
 - **Interactive Kanban & List Tracker**: Track job applications across their complete lifecycle (`Saved`, `Preparing`, `Ready to Apply`, `Applied`, `Assessment`, `Interview`, `Offer`, `Rejected`).
 - **Recruiter Response Inbox & Parser**: Ingest and analyze recruiter communications to automatically infer interview invites, assessments, offers, or rejections, recommending 1-click application status updates.
@@ -191,6 +197,7 @@ npm start
 | `npm test` | Runs the 14-test SQLite persistence regression suite |
 | `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
 | `npm run test:discovery` | Runs the 17-test Phase 3 real discovery & deduplication engine suite |
+| `npm run test:dossier` | Runs the 8-test Dossier architecture discovery & quota suite |
 
 ---
 
