@@ -1,9 +1,12 @@
 import { JobSourceAdapter, JobSourceId } from './types.ts';
+import { JSearchAdapter } from './sources/jsearch-adapter.ts';
+import { AdzunaAdapter } from './sources/adzuna-adapter.ts';
 import { CareerPagesAdapter } from './sources/career-pages.ts';
 import { NaukriAdapter } from './sources/naukri-adapter.ts';
 import { LinkedInAdapter } from './sources/linkedin-adapter.ts';
 import { InternshalaAdapter } from './sources/internshala-adapter.ts';
 import { FounditAdapter } from './sources/foundit-adapter.ts';
+import { apiUsageRepository } from '../database.ts';
 
 export class SourceAdapterRegistry {
   private adapters: Map<string, JobSourceAdapter> = new Map();
@@ -13,7 +16,12 @@ export class SourceAdapterRegistry {
   }
 
   private registerDefaults(): void {
+    // 3 Primary Dossier Channels
+    this.register(new JSearchAdapter());
+    this.register(new AdzunaAdapter());
     this.register(new CareerPagesAdapter());
+
+    // Preserved Fallback Adapters
     this.register(new NaukriAdapter());
     this.register(new LinkedInAdapter());
     this.register(new InternshalaAdapter());
@@ -41,6 +49,11 @@ export class SourceAdapterRegistry {
     return Array.from(this.adapters.values());
   }
 
+  public getPrimaryAdapters(): JobSourceAdapter[] {
+    const primaryIds = ['jsearch-api', 'adzuna-api', 'career-pages-public'];
+    return primaryIds.map((id) => this.get(id)).filter(Boolean) as JobSourceAdapter[];
+  }
+
   public getActive(): JobSourceAdapter[] {
     return this.getAll().filter((a) => a.status === 'Active' || a.status === 'Configured');
   }
@@ -57,6 +70,15 @@ export class SourceAdapterRegistry {
   }
 
   public getMetadata(adapter: JobSourceAdapter) {
+    let usage = undefined;
+    if (adapter.id === 'jsearch-api') {
+      usage = apiUsageRepository.getUsage('jsearch', 200);
+    } else if (adapter.id === 'adzuna-api') {
+      usage = apiUsageRepository.getUsage('adzuna', 250);
+    } else if (adapter.id === 'career-pages-public') {
+      usage = apiUsageRepository.getUsage('career-pages', 5000);
+    }
+
     return {
       id: adapter.id,
       source: adapter.source,
@@ -67,11 +89,16 @@ export class SourceAdapterRegistry {
       lastChecked: adapter.lastChecked,
       activeJobsCount: adapter.activeJobsCount || 0,
       isConfigured: adapter.isConfigured(),
+      usage,
     };
   }
 
   public getAllMetadata() {
     return this.getAll().map((a) => this.getMetadata(a));
+  }
+
+  public getPrimaryMetadata() {
+    return this.getPrimaryAdapters().map((a) => this.getMetadata(a));
   }
 }
 
