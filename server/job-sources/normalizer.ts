@@ -64,6 +64,53 @@ export function normalizeWorkArrangement(raw?: string, location?: string, descri
   return 'Hybrid';
 }
 
+export const INDIAN_TECH_CITIES = [
+  'bengaluru', 'bangalore', 'hyderabad', 'chennai', 'pune', 'mumbai',
+  'delhi', 'noida', 'gurgaon', 'gurugram', 'new delhi', 'kolkata',
+  'ahmedabad', 'chandigarh', 'kochi', 'coimbatore', 'jaipur', 'indore',
+  'thiruvananthapuram', 'mysore', 'nagpur', 'bhubaneswar', 'india', 'in'
+];
+
+export function isIndiaEligibleJob(
+  location?: string,
+  description?: string,
+  countryCode?: string
+): { eligible: boolean; isRemote: boolean; matchedLocation?: string } {
+  const loc = (location || '').toLowerCase().trim();
+  const desc = (description || '').slice(0, 500).toLowerCase();
+  const cCode = (countryCode || '').toLowerCase().trim();
+
+  // 1. Explicit country code check
+  if (cCode === 'in' || cCode === 'ind' || cCode === 'india') {
+    return { eligible: true, isRemote: loc.includes('remote'), matchedLocation: location };
+  }
+
+  // 2. Check for explicit Indian city / territory match
+  for (const city of INDIAN_TECH_CITIES) {
+    if (loc.includes(city) || desc.includes(`in ${city}`) || desc.includes(`at ${city}`)) {
+      return { eligible: true, isRemote: loc.includes('remote'), matchedLocation: city };
+    }
+  }
+
+  // 3. Remote jobs: only if explicitly worldwide or eligible for India
+  const isGenericRemote = loc.includes('remote') || loc.includes('anywhere') || loc.includes('wfh');
+  if (isGenericRemote) {
+    const nonIndiaRestrictions = ['us only', 'united states only', 'must reside in the us', 'uk only', 'canada only', 'europe only'];
+    const hasRestriction = nonIndiaRestrictions.some((r) => loc.includes(r) || desc.includes(r));
+    if (hasRestriction) {
+      return { eligible: false, isRemote: true };
+    }
+    return { eligible: true, isRemote: true, matchedLocation: 'Remote (India Eligible)' };
+  }
+
+  // 4. Preserve unknown / not specified locations for candidate review
+  if (!loc || loc === 'not specified' || loc === 'unknown' || loc === 'flexible') {
+    return { eligible: true, isRemote: false, matchedLocation: 'Location Review Pending' };
+  }
+
+  return { eligible: false, isRemote: false };
+}
+
 // Normalize employment type
 export function normalizeEmploymentType(raw?: string, title?: string): EmploymentType {
   const combined = `${raw || ''} ${title || ''}`.toLowerCase();

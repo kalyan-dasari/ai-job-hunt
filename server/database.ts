@@ -11,7 +11,7 @@ import {
   NotificationItem,
   PreparedMaterials,
 } from '../src/types/application';
-import { SourceConnector } from '../src/types/connector';
+import { SourceConnector, ProviderUsageInfo } from '../src/types/connector';
 import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
@@ -340,6 +340,33 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_job_sources_job_id ON job_sources(job_id);
         CREATE INDEX IF NOT EXISTS idx_job_sources_lookup ON job_sources(source_name, source_job_id);
+      `);
+    },
+  },
+  {
+    version: 3,
+    name: '003_api_usage_and_query_cache',
+    up: (db: DatabaseSync) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_usage (
+          provider TEXT PRIMARY KEY,
+          monthly_quota INTEGER NOT NULL DEFAULT 200,
+          current_month TEXT NOT NULL,
+          requests_used INTEGER NOT NULL DEFAULT 0,
+          last_request_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS query_cache (
+          cache_key TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          query_params TEXT NOT NULL,
+          response_json TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_query_cache_lookup ON query_cache(provider, expires_at);
       `);
     },
   },
@@ -1611,5 +1638,152 @@ export const jobSourcesRepository = {
     const db = getDatabase();
     const row = db.prepare('SELECT job_id FROM job_sources WHERE source_name = ? AND source_job_id = ? LIMIT 1').get(sourceName, sourceJobId) as any;
     return row ? row.job_id : null;
+  },
+};
+
+// 11. API USAGE REPOSITORY
+export const apiUsageRepository = {
+  getCurrentMonthKey(): string {
+    const d = new Date();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${month}`;
+  },
+
+  getUsage(provider: string, defaultQuota: number = 200): ProviderUsageInfo {
+    const db = getDatabase();
+    const currentMonth = this.getCurrentMonthKey();
+    const row = db.prepare('SELECT * FROM api_usage WHERE provider = ?').get(provider) as any;
+
+    if (!row) {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO api_usage (provider, monthly_quota, current_month, requests_used, last_request_at, created_at, updated_at)
+        VALUES (?, ?, ?, 0, NULL, ?, ?)
+      `).run(provider, defaultQuota, currentMonth, now, now);
+
+      return {
+        provider,
+        monthlyQuota: defaultQuota,
+        requestsUsed: 0,
+        requestsRemaining: defaultQuota,
+        currentMonth,
+        cachedQueriesCount: queryCacheRepository.countCached(provider),
+      };
+    }
+
+    // Reset if month has rolled over
+    if (row.current_month !== currentMonth) {
+      db.prepare(`
+        UPDATE api_usage
+        SET current_month = ?, requests_used = 0, updated_at = ?
+        WHERE provider = ?
+      `).run(currentMonth, new Date().toISOString(), provider);
+
+      return {
+        provider,
+        monthlyQuota: row.monthly_quota,
+        requestsUsed: 0,
+        requestsRemaining: row.monthly_quota,
+        currentMonth,
+        lastRequestAt: row.last_request_at || undefined,
+        cachedQueriesCount: queryCacheRepository.countCached(provider),
+      };
+    }
+
+    const quota = Number(row.monthly_quota || defaultQuota);
+    const used = Number(row.requests_used || 0);
+
+    return {
+      provider,
+      monthlyQuota: quota,
+      requestsUsed: used,
+      requestsRemaining: Math.max(0, quota - used),
+      currentMonth: row.current_month,
+      lastRequestAt: row.last_request_at || undefined,
+      cachedQueriesCount: queryCacheRepository.countCached(provider),
+    };
+  },
+
+  getAllUsage(): ProviderUsageInfo[] {
+    const providers = ['jsearch', 'adzuna', 'career-pages'];
+    return providers.map((p) => this.getUsage(p));
+  },
+
+  canMakeRequest(provider: string, defaultQuota: number = 200): boolean {
+    const usage = this.getUsage(provider, defaultQuota);
+    return usage.requestsUsed < usage.monthlyQuota;
+  },
+
+  recordRequest(provider: string, defaultQuota: number = 200): ProviderUsageInfo {
+    const db = getDatabase();
+    this.getUsage(provider, defaultQuota); // ensures row exists and current month is checked
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE api_usage
+      SET requests_used = requests_used + 1, last_request_at = ?, updated_at = ?
+      WHERE provider = ?
+    `).run(now, now, provider);
+
+    return this.getUsage(provider, defaultQuota);
+  },
+
+  setQuota(provider: string, quota: number): void {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE api_usage
+      SET monthly_quota = ?, updated_at = ?
+      WHERE provider = ?
+    `).run(quota, now, provider);
+  },
+};
+
+// 12. QUERY CACHE REPOSITORY
+export const queryCacheRepository = {
+  createKey(provider: string, queryParams: any): string {
+    const str = typeof queryParams === 'string' ? queryParams : JSON.stringify(queryParams);
+    return `${provider}:${str.toLowerCase().replace(/\s+/g, '')}`;
+  },
+
+  get<T>(provider: string, queryParams: any): T | null {
+    const db = getDatabase();
+    const key = this.createKey(provider, queryParams);
+    const now = new Date().toISOString();
+    const row = db.prepare('SELECT response_json FROM query_cache WHERE cache_key = ? AND expires_at > ?').get(key, now) as any;
+    if (!row) return null;
+    return fromJson<T>(row.response_json, null as any);
+  },
+
+  set(provider: string, queryParams: any, data: any, ttlSeconds: number = 86400): void {
+    const db = getDatabase();
+    const key = this.createKey(provider, queryParams);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+    const createdAt = now.toISOString();
+
+    db.prepare(`
+      INSERT INTO query_cache (cache_key, provider, query_params, response_json, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        response_json = excluded.response_json,
+        expires_at = excluded.expires_at
+    `).run(key, provider, toJson(queryParams, '{}'), toJson(data, '{}'), expiresAt, createdAt);
+  },
+
+  countCached(provider?: string): number {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    if (provider) {
+      const row = db.prepare('SELECT COUNT(*) as count FROM query_cache WHERE provider = ? AND expires_at > ?').get(provider, now) as any;
+      return row ? Number(row.count) : 0;
+    }
+    const row = db.prepare('SELECT COUNT(*) as count FROM query_cache WHERE expires_at > ?').get(now) as any;
+    return row ? Number(row.count) : 0;
+  },
+
+  cleanExpired(): void {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare('DELETE FROM query_cache WHERE expires_at <= ?').run(now);
   },
 };
