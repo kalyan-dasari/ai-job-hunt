@@ -329,7 +329,7 @@ B.S. in Computer Science, University of Colorado Boulder (2021)
     exportJsonRes.body.jobs.length === 2 &&
     exportJsonRes.body.applications.length === 1 &&
     typeof exportCsvRes.body === 'string' &&
-    exportCsvRes.body.includes('Apex Cloud Systems')
+    exportCsvRes.body.includes(testJob.company)
   ) {
     console.log('  -> PASS: Exports generated from live SQLite data in both JSON and CSV.\n');
   } else {

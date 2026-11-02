@@ -20,9 +20,11 @@ import {
   exportRepository,
   ingestionRunsRepository,
   jobSourcesRepository,
+  apiUsageRepository,
 } from './server/database.ts';
 import { sourceRegistry } from './server/job-sources/registry.ts';
 import { ingestionService } from './server/job-sources/scheduler.ts';
+import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
 import { calculateDeterministicMatch } from './server/matching.ts';
 
 dotenv.config();
@@ -1132,12 +1134,38 @@ app.get('/api/connectors', (_req: Request, res: Response) => {
 });
 
 // Sources list
-app.get('/api/sources', (_req: Request, res: Response) => {
+app.get('/api/sources', (req: Request, res: Response) => {
   try {
     syncConnectorsFromRegistry();
-    res.json(sourceRegistry.getAllMetadata());
+    if (req.query.primaryOnly === 'true') {
+      res.json(sourceRegistry.getPrimaryMetadata());
+    } else {
+      res.json(sourceRegistry.getAllMetadata());
+    }
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to load source adapters', details: err.message });
+  }
+});
+
+// Sources API Usage & Monthly Quotas
+app.get('/api/sources/usage', (_req: Request, res: Response) => {
+  try {
+    res.json(apiUsageRepository.getAllUsage());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load API usage', details: err.message });
+  }
+});
+
+// Dossier Job Discovery Agent Recommendations
+app.post('/api/discovery/recommendations', async (req: Request, res: Response) => {
+  try {
+    const result = await jobDiscoveryAgent.discover({
+      forceExternal: req.body?.forceExternal,
+      sourceIds: req.body?.sourceIds,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Discovery agent error', details: err.message });
   }
 });
 
@@ -1296,6 +1324,7 @@ app.get('/api/export', (req: Request, res: Response) => {
 async function startServer() {
   initDatabase();
   console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
+  ingestionService.startScheduler(60);
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
