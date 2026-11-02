@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx test_inprocess.ts",
     "test:restart": "tsx test_process_restart.ts",
-    "test:discovery": "tsx test_phase3_discovery.ts"
+    "test:discovery": "tsx test_phase3_discovery.ts",
+    "test:dossier": "tsx test_dossier_discovery.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
