@@ -91,7 +91,8 @@ async function runDossierDiscoveryTests() {
     },
   };
 
-  const normalizedJSearch = normalizeJSearchJob(mockJSearchItem);
+  const rawJSearch = normalizeJSearchJob(mockJSearchItem);
+  const normalizedJSearch = normalizeRawJob(rawJSearch);
 
   if (
     normalizedJSearch.company === 'PhonePe' &&
