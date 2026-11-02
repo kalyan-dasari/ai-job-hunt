@@ -2,11 +2,13 @@ export type WorkArrangement = 'Remote' | 'Hybrid' | 'On-site';
 export type EmploymentType = 'Full-time' | 'Internship' | 'Part-time' | 'Contract';
 export type ExperienceLevel = 'Intern' | 'Entry' | 'Mid' | 'Senior' | 'Lead';
 export type JobSource =
+  | 'JSearch'
+  | 'Adzuna'
+  | 'Career Page'
   | 'Naukri'
   | 'LinkedIn'
   | 'Internshala'
   | 'Foundit'
-  | 'Career Page'
   | 'Startup Feed'
   | 'Manual Import';
 
