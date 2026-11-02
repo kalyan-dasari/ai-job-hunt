@@ -179,10 +179,38 @@ export const api = {
     await fetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
   },
 
-  // Sources & Ingestion Engine (Phase 3)
-  async getSources(): Promise<any[]> {
-    const res = await fetch('/api/sources');
+  // Sources & Ingestion Engine (Phase 3 & Dossier Architecture)
+  async getSources(primaryOnly: boolean = false): Promise<any[]> {
+    const res = await fetch(`/api/sources${primaryOnly ? '?primaryOnly=true' : ''}`);
     if (!res.ok) throw new Error('Failed to fetch source adapters');
+    return res.json();
+  },
+
+  async getPrimarySources(): Promise<any[]> {
+    return this.getSources(true);
+  },
+
+  async getApiUsage(): Promise<any[]> {
+    const res = await fetch('/api/sources/usage');
+    if (!res.ok) throw new Error('Failed to fetch API usage');
+    return res.json();
+  },
+
+  async triggerDossierDiscovery(options?: { forceExternal?: boolean; sourceIds?: string[] }): Promise<{
+    run: any;
+    recommendations: Job[];
+    totalEvaluated: number;
+    queriesUsed: string[];
+  }> {
+    const res = await fetch('/api/discovery/recommendations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.details || err.error || 'Dossier discovery failed');
+    }
     return res.json();
   },
 
