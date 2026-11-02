@@ -41,6 +41,8 @@ export interface MatchDimensionBreakdown {
   educationAndCerts: number; // 0 - 100
   locationAndArrangement: number; // 0 - 100
   seniorityFit: number; // 0 - 100
+  domainRelevance?: number; // 0 - 100
+  titleRelevance?: number; // 0 - 100
 }
 
 export interface MatchResult {
@@ -52,6 +54,13 @@ export interface MatchResult {
   explanation: string;
   recommendations: string[];
   calculatedAt: string;
+  // Dossier-style detailed evaluation fields
+  experienceExplanation?: string;
+  isFresherEligible?: boolean;
+  fresherExplanation?: string;
+  locationCompatibilityNote?: string;
+  riskAssessment?: string;
+  mandatoryRequirementsMet?: boolean;
 }
 
 export interface StartupInfo {
