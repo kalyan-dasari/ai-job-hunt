@@ -204,7 +204,7 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
         ...prev,
         [companyId]: {
           success: res.success,
-          jobsFound: res.jobsFound ?? (res.jobs ? res.jobs.length : 0),
+          jobsFound: res.jobs ? res.jobs.length : 0,
           error: res.error,
         },
       }));
@@ -590,8 +590,8 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
                     </td>
 
                     <td className="py-3 font-mono text-[11px] text-slate-400">
-                      {comp.lastCrawledAt
-                        ? new Date(comp.lastCrawledAt).toLocaleTimeString()
+                      {comp.lastCrawlAt
+                        ? new Date(comp.lastCrawlAt).toLocaleTimeString()
                         : 'Never'}
                     </td>
 

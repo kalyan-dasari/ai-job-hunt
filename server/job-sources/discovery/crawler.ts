@@ -1,4 +1,4 @@
-import { CompanySource } from '../../src/types/connector.ts';
+import { CompanySource } from '../../../src/types/connector.ts';
 import { RawSourceJob, FetchResult } from '../types.ts';
 import { safeFetchWithRetry, stripHtml } from '../ats/types.ts';
 import { atsDetector } from './ats-detector.ts';

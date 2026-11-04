@@ -28,7 +28,7 @@ export interface SourceConnector {
   usage?: ProviderUsageInfo;
 }
 
-export type CompanySourceStatus = 'active' | 'limited' | 'blocked' | 'disabled' | 'error';
+export type CompanySourceStatus = 'active' | 'limited' | 'blocked' | 'disabled' | 'error' | 'paused';
 
 export interface CompanySource {
   id: string;
