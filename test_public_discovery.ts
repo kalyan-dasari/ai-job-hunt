@@ -249,6 +249,7 @@ async function runPublicDiscoveryTests() {
   if (
     jobLd.title !== 'Full Stack Engineer (React / Node.js)' ||
     jobLd.company !== 'FinTech Prime India' ||
+    !jobLd.location ||
     !jobLd.location.toLowerCase().includes('bengaluru') ||
     jobLd.salaryMin !== 1800000 ||
     jobLd.salaryMax !== 2800000 ||
@@ -328,7 +329,7 @@ async function runPublicDiscoveryTests() {
   const candidateFresher: CandidateProfile = {
     ...emptyCandidateProfile,
     id: 'candidate-fresher-test',
-    fullName: 'Arjun Verma',
+    name: 'Arjun Verma',
     headline: 'Junior Software Engineer',
     preferredRoles: ['Software Engineer', 'Frontend Developer'],
     preferredLocations: ['Bengaluru', 'Hyderabad'],
