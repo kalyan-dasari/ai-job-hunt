@@ -21,11 +21,20 @@ import {
   Server,
   Layers,
   CheckCircle2,
+  Rocket,
+  Radio,
 } from 'lucide-react';
 import { Job, WorkArrangement, EmploymentType, ExperienceLevel, VerificationStatus } from '../types/job';
 import { ApplicationRecord } from '../types/application';
 
-export type DiscoveryViewMode = 'recommended' | 'best_matches' | 'latest' | 'saved' | 'applied';
+export type DiscoveryViewMode =
+  | 'recommended'
+  | 'latest'
+  | 'startups'
+  | 'freshers'
+  | 'remote'
+  | 'saved'
+  | 'applied';
 
 interface JobDiscoveryViewProps {
   jobs: Job[];
@@ -66,6 +75,20 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   // Apply View Mode Pills
   if (viewMode === 'recommended') {
     filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= 50);
+  } else if (viewMode === 'startups') {
+    filtered = filtered.filter((j) => j.isStartup);
+  } else if (viewMode === 'freshers') {
+    filtered = filtered.filter(
+      (j) =>
+        j.matchResult?.isFresherEligible ||
+        j.experienceLevel === 'Intern' ||
+        j.experienceLevel === 'Entry' ||
+        (j.minExpYears !== undefined && j.minExpYears <= 1)
+    );
+  } else if (viewMode === 'remote') {
+    filtered = filtered.filter(
+      (j) => j.workArrangement === 'Remote' || j.location.toLowerCase().includes('remote')
+    );
   } else if (viewMode === 'saved') {
     filtered = filtered.filter((j) => j.isSaved);
   } else if (viewMode === 'applied') {
@@ -73,7 +96,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   }
 
   // Fresher filter toggle
-  if (fresherOnly) {
+  if (fresherOnly && viewMode !== 'freshers') {
     filtered = filtered.filter(
       (j) =>
         j.matchResult?.isFresherEligible ||
@@ -129,10 +152,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   }
 
   // Sorting based on viewMode or explicit sort
-  if (viewMode === 'best_matches' || sortBy === 'score') {
-    filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
-  } else if (viewMode === 'latest' || sortBy === 'newest') {
+  if (viewMode === 'latest' || sortBy === 'newest') {
     filtered.sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
+  } else if (sortBy === 'score') {
+    filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
   } else {
     // Default recommended sort
     filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
@@ -155,6 +178,110 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   // Source attribution badge helper
   const renderSourceBadge = (source: string) => {
     const sLower = source.toLowerCase();
+    if (sLower.includes('greenhouse')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-medium">
+          <Server className="w-3 h-3 text-emerald-400" />
+          <span>Greenhouse</span>
+        </span>
+      );
+    }
+    if (sLower.includes('lever')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/30 font-medium">
+          <Server className="w-3 h-3 text-teal-400" />
+          <span>Lever</span>
+        </span>
+      );
+    }
+    if (sLower.includes('ashby')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium">
+          <Server className="w-3 h-3 text-indigo-400" />
+          <span>Ashby</span>
+        </span>
+      );
+    }
+    if (sLower.includes('workable')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-medium">
+          <Server className="w-3 h-3 text-cyan-400" />
+          <span>Workable</span>
+        </span>
+      );
+    }
+    if (sLower.includes('smartrecruiters')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/30 font-medium">
+          <Server className="w-3 h-3 text-violet-400" />
+          <span>SmartRecruiters</span>
+        </span>
+      );
+    }
+    if (sLower.includes('recruitee')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-pink-500/10 text-pink-300 border border-pink-500/30 font-medium">
+          <Server className="w-3 h-3 text-pink-400" />
+          <span>Recruitee</span>
+        </span>
+      );
+    }
+    if (sLower.includes('personio')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium">
+          <Server className="w-3 h-3 text-amber-400" />
+          <span>Personio</span>
+        </span>
+      );
+    }
+    if (sLower.includes('breezy')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/30 font-medium">
+          <Server className="w-3 h-3 text-blue-400" />
+          <span>Breezy HR</span>
+        </span>
+      );
+    }
+    if (sLower.includes('teamtailor')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/30 font-medium">
+          <Server className="w-3 h-3 text-rose-400" />
+          <span>Teamtailor</span>
+        </span>
+      );
+    }
+    if (sLower.includes('rippling')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium">
+          <Server className="w-3 h-3 text-amber-400" />
+          <span>Rippling</span>
+        </span>
+      );
+    }
+    if (sLower.includes('workday')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/30 font-medium">
+          <Server className="w-3 h-3 text-blue-400" />
+          <span>Workday</span>
+        </span>
+      );
+    }
+    if (sLower.includes('json-ld')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-300 border border-yellow-500/30 font-medium">
+          <FileCheck className="w-3 h-3 text-yellow-400" />
+          <span>JSON-LD</span>
+        </span>
+      );
+    }
+    if (sLower.includes('rss')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-300 border border-orange-500/30 font-medium">
+          <Radio className="w-3 h-3 text-orange-400" />
+          <span>RSS Feed</span>
+        </span>
+      );
+    }
     if (sLower.includes('jsearch')) {
       return (
         <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
@@ -171,16 +298,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
         </span>
       );
     }
-    if (sLower.includes('career page') || sLower.includes('greenhouse') || sLower.includes('lever') || sLower.includes('ashby')) {
-      return (
-        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
-          <Server className="w-3 h-3" />
-          <span>Direct ATS</span>
-        </span>
-      );
-    }
     return (
-      <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 font-medium">
+        <Server className="w-3 h-3 text-purple-400" />
         <span>{source}</span>
       </span>
     );
@@ -188,6 +308,18 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
 
   const savedCount = jobs.filter((j) => j.isSaved).length;
   const appliedCount = applications.length;
+  const startupCount = jobs.filter((j) => j.isStartup && !j.isDismissed).length;
+  const fresherCount = jobs.filter(
+    (j) =>
+      !j.isDismissed &&
+      (j.matchResult?.isFresherEligible ||
+        j.experienceLevel === 'Intern' ||
+        j.experienceLevel === 'Entry' ||
+        (j.minExpYears !== undefined && j.minExpYears <= 1))
+  ).length;
+  const remoteCount = jobs.filter(
+    (j) => !j.isDismissed && (j.workArrangement === 'Remote' || j.location.toLowerCase().includes('remote'))
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -209,18 +341,6 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             </button>
 
             <button
-              onClick={() => setViewMode('best_matches')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                viewMode === 'best_matches'
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Compass className="w-3.5 h-3.5" />
-              <span>Best Matches</span>
-            </button>
-
-            <button
               onClick={() => setViewMode('latest')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
                 viewMode === 'latest'
@@ -230,6 +350,42 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Latest</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('startups')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'startups'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              <span>Startup Jobs ({startupCount})</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('freshers')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'freshers'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Fresher Jobs ({fresherCount})</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('remote')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'remote'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Remote Jobs ({remoteCount})</span>
             </button>
 
             <button
@@ -264,6 +420,12 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                 checked={fresherOnly}
                 onChange={(e) => setFresherOnly(e.target.checked)}
                 className="rounded border-emerald-500/30 bg-slate-900 text-emerald-500 focus:ring-0"
+              />
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Fresher Filter (0 yrs)</span>
+            </label>
+          </div>
+        </div>
               />
               <GraduationCap className="w-3.5 h-3.5" />
               <span>Fresher Friendly (0 yrs)</span>
@@ -704,12 +866,25 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       </button>
 
                       {!isHighRisk ? (
-                        <button
-                          onClick={() => onPrepareApplication(job)}
-                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-colors whitespace-nowrap shadow-sm shadow-sky-600/20"
-                        >
-                          Apply
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => onPrepareApplication(job)}
+                            className="px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-colors whitespace-nowrap"
+                            title="Generate tailored resume / cover letter & track application"
+                          >
+                            Prepare
+                          </button>
+                          <a
+                            href={job.applicationUrl || job.originalUrl}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-colors whitespace-nowrap inline-flex items-center gap-1 shadow-sm shadow-sky-600/20"
+                            title="Open official company job posting / application portal"
+                          >
+                            <span>Apply</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
                       ) : (
                         <button
                           onClick={() => onToggleDismiss(job.id)}
