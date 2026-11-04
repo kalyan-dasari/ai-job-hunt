@@ -37,7 +37,9 @@ export interface RawSourceJob {
   title: string;
   company: string;
   companyLogo?: string;
+  companyWebsite?: string;
   location?: string;
+  country?: string;
   workArrangement?: string;
   employmentType?: string;
   experienceLevel?: string;
@@ -53,6 +55,8 @@ export interface RawSourceJob {
   salaryCurrency?: string;
   url: string;
   canonicalUrl?: string;
+  applicationUrl?: string;
+  sourceType?: 'ATS' | 'CareerPage' | 'JSON-LD' | 'RSS' | 'Aggregator' | 'Manual';
   postedDate?: string;
   expiryDate?: string;
   sourceName: JobSourceId;

@@ -1,10 +1,12 @@
 import { CandidateProfile } from '../../src/types/candidate.ts';
 import { Job } from '../../src/types/job.ts';
+import { CompanySource } from '../../src/types/connector.ts';
 import { RawSourceJob, FetchCriteria, IngestionRunRecord, JobSourceReference } from './types.ts';
 import { sourceRegistry } from './registry.ts';
 import { normalizeRawJob, isIndiaEligibleJob } from './normalizer.ts';
 import { deduplicator } from './deduplicator.ts';
 import { calculateDossierMatch } from '../matching.ts';
+import { careerPageCrawler } from './discovery/crawler.ts';
 import {
   candidateRepository,
   jobsRepository,
@@ -12,14 +14,23 @@ import {
   ingestionRunsRepository,
   activityLogsRepository,
   notificationsRepository,
-  connectorsRepository,
-  apiUsageRepository,
+  companySourcesRepository,
+  discoveryAttemptsRepository,
 } from '../database.ts';
 
 export interface DiscoveryQueryPlan {
   keywords: string[];
   locations: string[];
   targetRole: string;
+}
+
+export interface DiscoveryOptions {
+  sourceIds?: string[];
+  companyIds?: string[];
+  triggerType?: 'manual' | 'scheduled';
+  forceExternal?: boolean;
+  criteria?: FetchCriteria;
+  limitCompanies?: number;
 }
 
 export class JobDiscoveryAgent {
@@ -72,20 +83,16 @@ export class JobDiscoveryAgent {
   }
 
   /**
-   * Main Dossier discovery workflow:
-   * 1. Profile ingestion
-   * 2. Targeted query formulation & rotation
-   * 3. Fetch from primary channels (JSearch, Adzuna, Career Boards)
+   * Main Dossier Web-First discovery workflow:
+   * 1. Profile ingestion & candidate preferences
+   * 2. Public company career-boards & ATS discovery (₹0 cost, zero paid API requirement)
+   * 3. Configured aggregator fallback (if any external credentials provided)
    * 4. Merge & India-first filter
    * 5. Deduplicate against existing SQLite catalog
-   * 6. Dossier match scoring & recommendations
+   * 6. 6D Dossier match scoring & recommendations
+   * 7. Persistence & provenance tracking in SQLite
    */
-  public async discover(options: {
-    sourceIds?: string[];
-    triggerType?: 'manual' | 'scheduled';
-    forceExternal?: boolean;
-    criteria?: FetchCriteria;
-  } = {}): Promise<{ run: IngestionRunRecord; recommendations: Job[] }> {
+  public async discover(options: DiscoveryOptions = {}): Promise<{ run: IngestionRunRecord; recommendations: Job[] }> {
     const runId = `run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const nowIso = new Date().toISOString();
     const triggerType = options.triggerType || 'manual';
@@ -107,72 +114,84 @@ export class JobDiscoveryAgent {
 
     try {
       const candidate = candidateRepository.getProfile();
-      const queryPlans = this.generateSearchQueries(candidate);
-
-      // In scheduled mode, rotate queries to conserve monthly API quotas
-      let activePlan: DiscoveryQueryPlan;
-      if (options.criteria && options.criteria.keywords.length > 0) {
-        activePlan = {
-          keywords: options.criteria.keywords,
-          locations: options.criteria.locations || ['India'],
-          targetRole: options.criteria.keywords[0],
-        };
-      } else if (triggerType === 'scheduled') {
-        activePlan = queryPlans[this.queryRotationIndex % queryPlans.length];
-        this.queryRotationIndex++;
-      } else {
-        activePlan = queryPlans[0];
-      }
-
-      // Determine active discovery channels
-      const allAdapters = sourceRegistry.getAll();
-      let targetAdapters = allAdapters.filter(
-        (a) => a.id === 'jsearch-api' || a.id === 'adzuna-api' || a.id === 'career-pages-public'
-      );
-
-      if (options.sourceIds && options.sourceIds.length > 0) {
-        targetAdapters = allAdapters.filter((a) => options.sourceIds!.includes(a.id));
-      }
-
       const existingJobs = jobsRepository.getAllJobs();
       const rawFetchedJobs: RawSourceJob[] = [];
 
-      for (const adapter of targetAdapters) {
-        run.sourcesChecked.push(adapter.displayName);
+      // 1. Direct Company Career-Boards & Public ATS Discovery (Core ₹0 Engine)
+      let targetCompanies: CompanySource[] = companySourcesRepository.getAll().filter((c) => c.status === 'active');
+      if (options.companyIds && options.companyIds.length > 0) {
+        targetCompanies = targetCompanies.filter((c) => options.companyIds!.includes(c.id));
+      } else if (options.limitCompanies && options.limitCompanies > 0) {
+        targetCompanies = targetCompanies.slice(0, options.limitCompanies);
+      }
 
-        // Check if provider is configured and not rate-limited
-        if (!adapter.isConfigured()) {
-          run.errors.push(`[${adapter.displayName}] Awaiting credentials; skipped live query.`);
-          continue;
+      for (const comp of targetCompanies) {
+        run.sourcesChecked.push(`${comp.name} (${comp.atsProvider || 'Web'})`);
+        try {
+          const crawlRes = await careerPageCrawler.crawlCompany(comp);
+          if (crawlRes.success && crawlRes.jobs.length > 0) {
+            rawFetchedJobs.push(...crawlRes.jobs);
+            run.jobsFound += crawlRes.jobs.length;
+          } else if (crawlRes.error) {
+            run.errors.push(`[${comp.name}] ${crawlRes.error}`);
+          }
+        } catch (compErr: any) {
+          run.errors.push(`[${comp.name}] Crawl error: ${compErr.message || compErr}`);
+        }
+      }
+
+      // 2. Query configured external aggregator adapters (only if configured or explicitly requested)
+      if (options.sourceIds && options.sourceIds.length > 0) {
+        const queryPlans = this.generateSearchQueries(candidate);
+        let activePlan: DiscoveryQueryPlan;
+        if (options.criteria && options.criteria.keywords.length > 0) {
+          activePlan = {
+            keywords: options.criteria.keywords,
+            locations: options.criteria.locations || ['India'],
+            targetRole: options.criteria.keywords[0],
+          };
+        } else {
+          activePlan = queryPlans[0];
         }
 
-        try {
-          const fetchCriteria: FetchCriteria = {
-            keywords: activePlan.keywords,
-            locations: activePlan.locations,
-            limit: 15,
-            page: 1,
-          };
+        const allAdapters = sourceRegistry.getAll();
+        const selectedAdapters = allAdapters.filter((a) => options.sourceIds!.includes(a.id));
 
-          const fetchResult = await adapter.fetchJobs(fetchCriteria);
+        for (const adapter of selectedAdapters) {
+          run.sourcesChecked.push(adapter.displayName);
 
-          if (!fetchResult.success && fetchResult.error) {
-            run.errors.push(`[${adapter.displayName}] ${fetchResult.error}`);
+          if (!adapter.isConfigured()) {
+            run.errors.push(`[${adapter.displayName}] Awaiting credentials; skipped live query.`);
+            continue;
           }
 
-          if (fetchResult.jobs && fetchResult.jobs.length > 0) {
-            rawFetchedJobs.push(...fetchResult.jobs);
-            run.jobsFound += fetchResult.jobs.length;
+          try {
+            const fetchCriteria: FetchCriteria = {
+              keywords: activePlan.keywords,
+              locations: activePlan.locations,
+              limit: 15,
+              page: 1,
+            };
+
+            const fetchResult = await adapter.fetchJobs(fetchCriteria);
+            if (!fetchResult.success && fetchResult.error) {
+              run.errors.push(`[${adapter.displayName}] ${fetchResult.error}`);
+            }
+
+            if (fetchResult.jobs && fetchResult.jobs.length > 0) {
+              rawFetchedJobs.push(...fetchResult.jobs);
+              run.jobsFound += fetchResult.jobs.length;
+            }
+          } catch (fetchErr: any) {
+            run.errors.push(`[${adapter.displayName}] Fetch failed: ${fetchErr.message || fetchErr}`);
           }
-        } catch (fetchErr: any) {
-          run.errors.push(`[${adapter.displayName}] Fetch failed: ${fetchErr.message || fetchErr}`);
         }
       }
 
       // Ingestion Pipeline: Filter -> Deduplicate -> Store -> Match
       for (const raw of rawFetchedJobs) {
         // 1. India-first Filtering
-        const indiaCheck = isIndiaEligibleJob(raw.location, raw.description);
+        const indiaCheck = isIndiaEligibleJob(raw.location, raw.description, raw.country);
         if (!indiaCheck.eligible) {
           // Skip roles restricted to other countries
           continue;
@@ -247,13 +266,13 @@ export class JobDiscoveryAgent {
         'discovery_completed',
         'discovery_agent',
         run.id,
-        `Dossier Discovery Agent completed: +${run.jobsAdded} new opportunities ingested (${run.duplicatesFiltered} duplicates merged).`
+        `Web-First Job Discovery Agent completed: +${run.jobsAdded} new opportunities ingested (${run.duplicatesFiltered} duplicates merged).`
       );
 
       if (run.jobsAdded > 0) {
         notificationsRepository.createNotification({
           id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          title: 'Dossier Job Recommendations Ready',
+          title: 'New Job Recommendations Ready',
           message: `Discovered ${run.jobsAdded} relevant opportunities matching your profile in India hubs.`,
           timestamp: new Date().toISOString(),
           type: 'job_alert',
@@ -266,7 +285,7 @@ export class JobDiscoveryAgent {
       const recommendations = existingJobs
         .filter((j) => !j.isDismissed)
         .sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0))
-        .slice(0, 20);
+        .slice(0, 30);
 
       return { run, recommendations };
     } catch (err: any) {
@@ -280,4 +299,3 @@ export class JobDiscoveryAgent {
 }
 
 export const jobDiscoveryAgent = new JobDiscoveryAgent();
-
