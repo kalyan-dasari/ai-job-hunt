@@ -426,12 +426,6 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             </label>
           </div>
         </div>
-              />
-              <GraduationCap className="w-3.5 h-3.5" />
-              <span>Fresher Friendly (0 yrs)</span>
-            </label>
-          </div>
-        </div>
 
         {/* Search Bar & Sorter */}
         <div className="flex flex-col md:flex-row md:items-center gap-4">
