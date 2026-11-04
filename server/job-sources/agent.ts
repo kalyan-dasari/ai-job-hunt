@@ -118,11 +118,16 @@ export class JobDiscoveryAgent {
       const rawFetchedJobs: RawSourceJob[] = [];
 
       // 1. Direct Company Career-Boards & Public ATS Discovery (Core ₹0 Engine)
-      let targetCompanies: CompanySource[] = companySourcesRepository.getAll().filter((c) => c.status === 'active');
+      let targetCompanies: CompanySource[] = [];
       if (options.companyIds && options.companyIds.length > 0) {
-        targetCompanies = targetCompanies.filter((c) => options.companyIds!.includes(c.id));
-      } else if (options.limitCompanies && options.limitCompanies > 0) {
-        targetCompanies = targetCompanies.slice(0, options.limitCompanies);
+        targetCompanies = companySourcesRepository.getAll().filter((c) => c.status === 'active' && options.companyIds!.includes(c.id));
+      } else if (!options.sourceIds || options.sourceIds.length === 0) {
+        targetCompanies = companySourcesRepository.getAll().filter((c) => c.status === 'active');
+        if (options.limitCompanies && options.limitCompanies > 0) {
+          targetCompanies = targetCompanies.slice(0, options.limitCompanies);
+        } else {
+          targetCompanies = targetCompanies.slice(0, 8);
+        }
       }
 
       for (const comp of targetCompanies) {
