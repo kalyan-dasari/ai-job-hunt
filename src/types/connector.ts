@@ -1,6 +1,16 @@
 import { JobSource } from './job';
 
-export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted';
+export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted' | 'Awaiting Credentials';
+
+export interface ProviderUsageInfo {
+  provider: string;
+  monthlyQuota: number;
+  requestsUsed: number;
+  requestsRemaining: number;
+  currentMonth: string;
+  lastRequestAt?: string;
+  cachedQueriesCount?: number;
+}
 
 export interface SourceConnector {
   id: string;
@@ -15,4 +25,35 @@ export interface SourceConnector {
   lastSyncTimestamp?: string;
   activeJobsCount: number;
   setupInstructions: string;
+  usage?: ProviderUsageInfo;
+}
+
+export type CompanySourceStatus = 'active' | 'limited' | 'blocked' | 'disabled' | 'error';
+
+export interface CompanySource {
+  id: string;
+  name: string;
+  websiteUrl: string;
+  careersUrl: string;
+  atsProvider?: string; // 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'recruitee' | 'personio' | 'breezy' | 'teamtailor' | 'rippling' | 'workday' | 'generic'
+  atsSlug?: string;
+  status: CompanySourceStatus;
+  lastCrawlAt?: string;
+  lastSuccessfulCrawlAt?: string;
+  lastError?: string;
+  crawlFrequencyHours: number;
+  jobsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DiscoveryAttempt {
+  id: string;
+  companyId?: string;
+  url: string;
+  status: 'success' | 'failed' | 'skipped';
+  httpStatus?: number;
+  errorMessage?: string;
+  jobsFound: number;
+  attemptedAt: string;
 }

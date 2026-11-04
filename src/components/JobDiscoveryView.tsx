@@ -14,11 +14,22 @@ import {
   Check,
   X,
   FileCheck,
+  GraduationCap,
+  Globe,
+  Compass,
+  Cpu,
+  Server,
+  Layers,
+  CheckCircle2,
 } from 'lucide-react';
 import { Job, WorkArrangement, EmploymentType, ExperienceLevel, VerificationStatus } from '../types/job';
+import { ApplicationRecord } from '../types/application';
+
+export type DiscoveryViewMode = 'recommended' | 'best_matches' | 'latest' | 'saved' | 'applied';
 
 interface JobDiscoveryViewProps {
   jobs: Job[];
+  applications?: ApplicationRecord[];
   onSelectJob: (job: Job) => void;
   onPrepareApplication: (job: Job) => void;
   onToggleSave: (jobId: string) => void;
@@ -27,24 +38,50 @@ interface JobDiscoveryViewProps {
 
 export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   jobs,
+  applications = [],
   onSelectJob,
   onPrepareApplication,
   onToggleSave,
   onToggleDismiss,
 }) => {
+  const [viewMode, setViewMode] = useState<DiscoveryViewMode>('recommended');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('all');
   const [selectedArrangement, setSelectedArrangement] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
-  const [selectedVerification, setSelectedVerification] = useState<string>('all');
+  const [selectedFreshness, setSelectedFreshness] = useState<string>('all');
+  const [fresherOnly, setFresherOnly] = useState(false);
   const [startupOnly, setStartupOnly] = useState(false);
   const [minScore, setMinScore] = useState<number>(0);
   const [sortBy, setSortBy] = useState<'relevance' | 'score' | 'newest'>('relevance');
 
-  // Filter pipeline
+  // Applied job IDs set for quick lookup
+  const appliedJobIds = new Set(applications.map((a) => a.jobId));
+
+  // Base list excludes dismissed unless searching specifically
   let filtered = jobs.filter((j) => !j.isDismissed);
+
+  // Apply View Mode Pills
+  if (viewMode === 'recommended') {
+    filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= 50);
+  } else if (viewMode === 'saved') {
+    filtered = filtered.filter((j) => j.isSaved);
+  } else if (viewMode === 'applied') {
+    filtered = filtered.filter((j) => appliedJobIds.has(j.id));
+  }
+
+  // Fresher filter toggle
+  if (fresherOnly) {
+    filtered = filtered.filter(
+      (j) =>
+        j.matchResult?.isFresherEligible ||
+        j.experienceLevel === 'Intern' ||
+        j.experienceLevel === 'Entry' ||
+        (j.minExpYears !== undefined && j.minExpYears <= 1)
+    );
+  }
 
   if (searchQuery.trim()) {
     const q = searchQuery.toLowerCase();
@@ -77,9 +114,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     filtered = filtered.filter((j) => j.source.toLowerCase() === selectedSource.toLowerCase());
   }
 
-  if (selectedVerification !== 'all') {
+  if (selectedFreshness !== 'all') {
     filtered = filtered.filter(
-      (j) => j.verificationReport.status.toLowerCase() === selectedVerification.toLowerCase()
+      (j) => (j.freshnessStatus || 'Active').toLowerCase() === selectedFreshness.toLowerCase()
     );
   }
 
@@ -91,12 +128,13 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= minScore);
   }
 
-  // Sorting
-  if (sortBy === 'score') {
+  // Sorting based on viewMode or explicit sort
+  if (viewMode === 'best_matches' || sortBy === 'score') {
     filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
-  } else if (sortBy === 'newest') {
+  } else if (viewMode === 'latest' || sortBy === 'newest') {
     filtered.sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
   } else {
+    // Default recommended sort
     filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
   }
 
@@ -107,16 +145,133 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     setSelectedType('all');
     setSelectedLevel('all');
     setSelectedSource('all');
-    setSelectedVerification('all');
+    setSelectedFreshness('all');
+    setFresherOnly(false);
     setStartupOnly(false);
     setMinScore(0);
     setSortBy('relevance');
   };
 
+  // Source attribution badge helper
+  const renderSourceBadge = (source: string) => {
+    const sLower = source.toLowerCase();
+    if (sLower.includes('jsearch')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
+          <Globe className="w-3 h-3" />
+          <span>JSearch</span>
+        </span>
+      );
+    }
+    if (sLower.includes('adzuna')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+          <Cpu className="w-3 h-3" />
+          <span>Adzuna</span>
+        </span>
+      );
+    }
+    if (sLower.includes('career page') || sLower.includes('greenhouse') || sLower.includes('lever') || sLower.includes('ashby')) {
+      return (
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
+          <Server className="w-3 h-3" />
+          <span>Direct ATS</span>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">
+        <span>{source}</span>
+      </span>
+    );
+  };
+
+  const savedCount = jobs.filter((j) => j.isSaved).length;
+  const appliedCount = applications.length;
+
   return (
     <div className="space-y-6">
-      {/* Search Header */}
-      <div className="bg-[#111726] border border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-sm">
+      {/* Search Header & View Mode Switcher */}
+      <div className="bg-[#111726] border border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+        {/* Dossier View Mode Tabs */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-900 border border-slate-800 rounded-xl">
+            <button
+              onClick={() => setViewMode('recommended')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'recommended'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Recommended</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('best_matches')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'best_matches'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Compass className="w-3.5 h-3.5" />
+              <span>Best Matches</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('latest')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'latest'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Latest</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('saved')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'saved'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Saved ({savedCount})</span>
+            </button>
+
+            <button
+              onClick={() => setViewMode('applied')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                viewMode === 'applied'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Applied ({appliedCount})</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="inline-flex items-center gap-2 cursor-pointer text-xs text-emerald-400 font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <input
+                type="checkbox"
+                checked={fresherOnly}
+                onChange={(e) => setFresherOnly(e.target.checked)}
+                className="rounded border-emerald-500/30 bg-slate-900 text-emerald-500 focus:ring-0"
+              />
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Fresher Friendly (0 yrs)</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Search Bar & Sorter */}
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -124,7 +279,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by job title, skill (e.g. React, Python), or company..."
+              placeholder="Search by job title, skill (e.g. React, Python, Node.js), or company..."
               className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-500"
             />
             {searchQuery && (
@@ -144,7 +299,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
             >
-              <option value="relevance">Highest Match</option>
+              <option value="relevance">Highest Dossier Fit</option>
               <option value="score">Match Score (Desc)</option>
               <option value="newest">Recently Posted</option>
             </select>
@@ -152,7 +307,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
         </div>
 
         {/* Filter Toolbar Controls */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-slate-800">
           <div>
             <label className="block text-[11px] font-medium text-slate-400 mb-1">Arrangement</label>
             <select
@@ -161,7 +316,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
             >
               <option value="all">All Arrangements</option>
-              <option value="remote">Remote</option>
+              <option value="remote">Remote (India)</option>
               <option value="hybrid">Hybrid</option>
               <option value="on-site">On-site</option>
             </select>
@@ -197,38 +352,37 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Source</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Channel Source</label>
             <select
               value={selectedSource}
               onChange={(e) => setSelectedSource(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
             >
-              <option value="all">All Sources</option>
-              <option value="career page">Career Pages</option>
+              <option value="all">All Channels</option>
+              <option value="jsearch">JSearch (Primary)</option>
+              <option value="adzuna">Adzuna (India)</option>
+              <option value="career page">Career Pages (ATS)</option>
               <option value="startup feed">Startup Feeds</option>
-              <option value="linkedin">LinkedIn</option>
-              <option value="naukri">Naukri</option>
-              <option value="internshala">Internshala</option>
-              <option value="foundit">Foundit</option>
+              <option value="manual import">Manual Import</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Authenticity</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Freshness</label>
             <select
-              value={selectedVerification}
-              onChange={(e) => setSelectedVerification(e.target.value)}
+              value={selectedFreshness}
+              onChange={(e) => setSelectedFreshness(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
             >
-              <option value="all">All Statuses</option>
-              <option value="verified">Verified Only</option>
-              <option value="needs review">Needs Review</option>
-              <option value="high risk">High Risk Flagged</option>
+              <option value="all">All Freshness</option>
+              <option value="newly discovered">Newly Discovered</option>
+              <option value="active">Active</option>
+              <option value="potentially stale">Potentially Stale</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Min Match</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Min Match Fit</label>
             <select
               value={minScore}
               onChange={(e) => setMinScore(Number(e.target.value))}
@@ -242,9 +396,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           </div>
         </div>
 
-        {/* Startup toggle & active counts row */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mt-4 pt-3 border-t border-slate-800 text-xs">
-          <div className="flex items-center gap-4">
+        {/* Count row & reset */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-800 text-xs">
+          <div className="flex items-center gap-3">
             <label className="inline-flex items-center gap-2 cursor-pointer text-slate-300">
               <input
                 type="checkbox"
@@ -252,12 +406,12 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                 onChange={(e) => setStartupOnly(e.target.checked)}
                 className="rounded border-slate-700 bg-slate-900 text-sky-500 focus:ring-0"
               />
-              <span>Startup & Early-Stage Only</span>
+              <span>Startup &amp; High-Growth Only</span>
             </label>
 
             <span className="text-slate-500">·</span>
             <span className="text-slate-400">
-              Showing <strong className="text-white font-mono">{filtered.length}</strong> verified opportunities
+              Showing <strong className="text-white font-mono">{filtered.length}</strong> opportunities
             </span>
           </div>
 
@@ -266,7 +420,8 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             selectedType !== 'all' ||
             selectedLevel !== 'all' ||
             selectedSource !== 'all' ||
-            selectedVerification !== 'all' ||
+            selectedFreshness !== 'all' ||
+            fresherOnly ||
             startupOnly ||
             minScore > 0) && (
             <button
@@ -286,12 +441,14 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             <Search className="w-6 h-6" />
           </div>
           <h3 className="text-base font-semibold text-white">
-            {jobs.length === 0 ? 'No job opportunities imported yet' : 'No job opportunities matched your criteria'}
+            {jobs.length === 0
+              ? 'No job opportunities discovered yet'
+              : 'No job opportunities matched your criteria'}
           </h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
             {jobs.length === 0
-              ? 'Import job listings via CSV or JSON in the Data & Sources tab to discover and match career opportunities.'
-              : 'Try adjusting your search terms, relaxing experience requirements, or clearing your active filters.'}
+              ? 'Click "Run Dossier Discovery" in the Ingestion tab or configure your JSearch / Adzuna API credentials to ingest authentic India opportunities.'
+              : 'Try clearing your active filters, relaxing the minimum match score, or toggling off fresher-only filters.'}
           </p>
           {jobs.length > 0 && (
             <button
@@ -303,48 +460,76 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           )}
         </div>
       ) : (
-        <div className="space-y-3.5">
+        <div className="space-y-4">
           {filtered.map((job) => {
-            const score = job.matchResult?.overallScore || 0;
+            const match = job.matchResult;
+            const score = match?.overallScore || 0;
             const isVerified = job.verificationReport.status === 'Verified';
             const isHighRisk = job.verificationReport.status === 'High Risk';
+            const isFresherEligible = match?.isFresherEligible;
+            const isApplied = appliedJobIds.has(job.id);
 
             return (
               <div
                 key={job.id}
-                className={`bg-[#111726] border rounded-xl p-5 transition-all group ${
+                className={`bg-[#111726] border rounded-2xl p-5 transition-all group ${
                   isHighRisk
                     ? 'border-red-900/60 bg-red-950/10'
                     : 'border-slate-800/80 hover:border-slate-700/80'
                 }`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
-                  {/* Left Column: Job Summary */}
-                  <div className="space-y-2 flex-1">
-                    {/* Unboxed Metadata Line with typographic separators */}
+                  {/* Left Column: Job Summary & Dossier Fit Highlights */}
+                  <div className="space-y-3 flex-1">
+                    {/* Source & Location Metadata Line */}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                      <span className="font-semibold text-white text-sm">{job.company}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{job.location}</span>
-                      <span aria-hidden="true">·</span>
+                      <span className="font-bold text-white text-sm">{job.company}</span>
+                      <span aria-hidden="true" className="text-slate-600">·</span>
+                      <span className="text-slate-300">{job.location}</span>
+                      <span aria-hidden="true" className="text-slate-600">·</span>
                       <span>{job.workArrangement}</span>
-                      <span aria-hidden="true">·</span>
+                      <span aria-hidden="true" className="text-slate-600">·</span>
                       <span>{job.employmentType}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="text-slate-300 font-mono">{job.source}</span>
-                      {job.isStartup && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="text-indigo-400 font-medium">Startup ({job.startupInfo?.stage || 'Seed'})</span>
-                        </>
+                      <span aria-hidden="true" className="text-slate-600">·</span>
+
+                      {/* Source attribution badge */}
+                      {renderSourceBadge(job.source)}
+
+                      {/* Fresher Eligible Badge */}
+                      {isFresherEligible && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/30 font-semibold">
+                          <GraduationCap className="w-3 h-3" />
+                          <span>Fresher Eligible (0 yrs)</span>
+                        </span>
+                      )}
+
+                      {isApplied && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30 font-medium">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Applied</span>
+                        </span>
+                      )}
+
+                      {job.freshnessStatus && (
+                        <span
+                          className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                            job.freshnessStatus === 'Newly Discovered'
+                              ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                              : job.freshnessStatus === 'Active'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {job.freshnessStatus}
+                        </span>
                       )}
                     </div>
 
-                    {/* Job Title */}
+                    {/* Job Title & Link */}
                     <div className="flex items-baseline gap-2">
                       <h2
                         onClick={() => onSelectJob(job)}
-                        className={`text-base font-semibold cursor-pointer transition-colors ${
+                        className={`text-base font-bold cursor-pointer transition-colors ${
                           isHighRisk ? 'text-red-300 hover:text-red-200' : 'text-white hover:text-sky-400'
                         }`}
                       >
@@ -354,24 +539,32 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                         href={job.originalUrl}
                         target="_blank"
                         rel="noreferrer noopener"
-                        title="Open original listing URL in new tab"
-                        className="text-slate-500 hover:text-slate-300 inline-flex items-center"
+                        title="Open original job posting"
+                        className="text-slate-500 hover:text-sky-400 inline-flex items-center transition-colors"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
 
-                    {/* Salary & Experience Disclosures */}
+                    {/* Compensation & Experience disclosures */}
                     <div className="flex flex-wrap items-center gap-3 text-xs">
                       {job.salary?.displayText ? (
-                        <span className="text-emerald-400 font-mono">{job.salary.displayText}</span>
+                        <span className="text-emerald-400 font-mono font-medium">{job.salary.displayText}</span>
                       ) : (
                         <span className="text-slate-500">Compensation undisclosed by source</span>
                       )}
                       <span aria-hidden="true" className="text-slate-700">·</span>
-                      <span className="text-slate-400">
+                      <span className="text-slate-300">
                         Experience: {job.experienceLevel} ({job.minExpYears || 0}-{job.maxExpYears || 0} yrs)
                       </span>
+                      {match?.experienceExplanation && (
+                        <>
+                          <span aria-hidden="true" className="text-slate-700">·</span>
+                          <span className="text-slate-400 text-[11px] italic">
+                            {match.experienceExplanation}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     {/* Short Description */}
@@ -379,16 +572,61 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       {job.description}
                     </p>
 
-                    {/* Skills Checklist (Clean text tags) */}
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 pt-1">
-                      <span className="text-slate-500">Required Skills:</span>
-                      {job.requiredSkills.map((skill, sIdx) => (
-                        <span key={sIdx} className="text-slate-300">
-                          {skill}
-                          {sIdx < job.requiredSkills.length - 1 ? ' · ' : ''}
-                        </span>
-                      ))}
-                    </div>
+                    {/* Dossier Match Fit Analysis Block */}
+                    {match && (
+                      <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-2 text-xs">
+                        <div className="flex items-start gap-2">
+                          <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                          <div className="space-y-1 flex-1">
+                            <span className="font-semibold text-slate-200 block text-[11px]">
+                              Why this matches your profile:
+                            </span>
+                            <p className="text-slate-300 leading-relaxed text-[11px]">
+                              {match.reasoningSummary || match.explanation}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Location Compatibility Note if present */}
+                        {match.locationCompatibilityNote && (
+                          <div className="text-[10px] text-slate-400 pl-5 flex items-center gap-1 font-mono">
+                            <MapPin className="w-3 h-3 text-slate-500" />
+                            <span>{match.locationCompatibilityNote}</span>
+                          </div>
+                        )}
+
+                        {/* Skills Breakdown Tags */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800/80">
+                          {match.strongMatches && match.strongMatches.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] text-emerald-400 font-medium">Matched:</span>
+                              {match.strongMatches.slice(0, 5).map((sm, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px]"
+                                >
+                                  {sm}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {match.missingSkills && match.missingSkills.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 ml-2">
+                              <span className="text-[10px] text-amber-400 font-medium">Missing:</span>
+                              {match.missingSkills.slice(0, 3).map((ms, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px]"
+                                >
+                                  {ms}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Risk Callout if High Risk */}
                     {isHighRisk && (
@@ -406,10 +644,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                     {/* Match Score Display */}
                     <div className="text-left lg:text-right">
                       <div className="flex items-center gap-2 justify-start lg:justify-end">
-                        <span className="text-xs text-slate-400">Match Fit:</span>
+                        <span className="text-xs text-slate-400">Dossier Fit:</span>
                         <span
-                          className={`text-base font-bold font-mono tabular-nums ${
-                            score >= 85 ? 'text-sky-400' : score >= 70 ? 'text-amber-400' : 'text-slate-400'
+                          className={`text-lg font-bold font-mono tabular-nums ${
+                            score >= 85 ? 'text-emerald-400' : score >= 70 ? 'text-sky-400' : 'text-slate-400'
                           }`}
                         >
                           {score}%
@@ -419,27 +657,27 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       {/* Verification Status */}
                       <div className="mt-1 flex items-center gap-1.5 justify-start lg:justify-end text-xs">
                         {isVerified ? (
-                          <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                          <span className="text-emerald-400 flex items-center gap-1 font-medium text-[11px]">
                             <ShieldCheck className="w-3.5 h-3.5" />
                             <span>Verified</span>
                           </span>
                         ) : isHighRisk ? (
-                          <span className="text-red-400 flex items-center gap-1 font-medium">
+                          <span className="text-red-400 flex items-center gap-1 font-medium text-[11px]">
                             <ShieldAlert className="w-3.5 h-3.5" />
                             <span>High Risk</span>
                           </span>
                         ) : (
-                          <span className="text-amber-400 flex items-center gap-1 font-medium">
+                          <span className="text-amber-400 flex items-center gap-1 font-medium text-[11px]">
                             <AlertTriangle className="w-3.5 h-3.5" />
                             <span>Needs Review</span>
                           </span>
                         )}
-                        <span className="text-slate-500 text-[11px] font-mono">
-                          ({job.verificationReport.confidence}% conf)
+                        <span className="text-slate-500 text-[10px] font-mono">
+                          ({job.verificationReport.confidence}%)
                         </span>
                       </div>
 
-                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                         Posted {job.datePosted}
                       </div>
                     </div>
@@ -448,7 +686,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => onToggleSave(job.id)}
-                        className={`p-2 rounded-lg border transition-colors ${
+                        className={`p-2 rounded-xl border transition-colors ${
                           job.isSaved
                             ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
@@ -460,7 +698,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
 
                       <button
                         onClick={() => onSelectJob(job)}
-                        className="px-3 py-1.5 text-xs font-medium text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg transition-colors whitespace-nowrap"
+                        className="px-3 py-1.5 text-xs font-medium text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-colors whitespace-nowrap"
                       >
                         Inspect
                       </button>
@@ -468,14 +706,14 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       {!isHighRisk ? (
                         <button
                           onClick={() => onPrepareApplication(job)}
-                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors whitespace-nowrap shadow-sm shadow-sky-600/20"
+                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-colors whitespace-nowrap shadow-sm shadow-sky-600/20"
                         >
                           Apply
                         </button>
                       ) : (
                         <button
                           onClick={() => onToggleDismiss(job.id)}
-                          className="px-3 py-1.5 text-xs font-medium text-red-300 bg-red-950/50 hover:bg-red-900/60 border border-red-800/80 rounded-lg transition-colors whitespace-nowrap"
+                          className="px-3 py-1.5 text-xs font-medium text-red-300 bg-red-950/50 hover:bg-red-900/60 border border-red-800/80 rounded-xl transition-colors whitespace-nowrap"
                         >
                           Dismiss Risk
                         </button>

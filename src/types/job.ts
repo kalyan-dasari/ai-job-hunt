@@ -2,15 +2,31 @@ export type WorkArrangement = 'Remote' | 'Hybrid' | 'On-site';
 export type EmploymentType = 'Full-time' | 'Internship' | 'Part-time' | 'Contract';
 export type ExperienceLevel = 'Intern' | 'Entry' | 'Mid' | 'Senior' | 'Lead';
 export type JobSource =
+  | 'Greenhouse'
+  | 'Lever'
+  | 'Ashby'
+  | 'Workable'
+  | 'SmartRecruiters'
+  | 'Recruitee'
+  | 'Personio'
+  | 'Breezy HR'
+  | 'Teamtailor'
+  | 'Rippling'
+  | 'Workday'
+  | 'JSON-LD'
+  | 'RSS Feed'
+  | 'Career Page'
+  | 'Startup Feed'
+  | 'JSearch'
+  | 'Adzuna'
   | 'Naukri'
   | 'LinkedIn'
   | 'Internshala'
   | 'Foundit'
-  | 'Career Page'
-  | 'Startup Feed'
   | 'Manual Import';
 
 export type VerificationStatus = 'Verified' | 'Needs Review' | 'High Risk' | 'Unknown';
+export type FreshnessStatus = 'Newly Discovered' | 'Active' | 'Potentially Stale' | 'Expired' | 'Closed';
 
 export interface VerificationCheckDetail {
   id: string;
@@ -38,6 +54,8 @@ export interface MatchDimensionBreakdown {
   educationAndCerts: number; // 0 - 100
   locationAndArrangement: number; // 0 - 100
   seniorityFit: number; // 0 - 100
+  domainRelevance?: number; // 0 - 100
+  titleRelevance?: number; // 0 - 100
 }
 
 export interface MatchResult {
@@ -49,6 +67,14 @@ export interface MatchResult {
   explanation: string;
   recommendations: string[];
   calculatedAt: string;
+  // Dossier-style detailed evaluation fields
+  reasoningSummary?: string;
+  experienceExplanation?: string;
+  isFresherEligible?: boolean;
+  fresherExplanation?: string;
+  locationCompatibilityNote?: string;
+  riskAssessment?: string;
+  mandatoryRequirementsMet?: boolean;
 }
 
 export interface StartupInfo {
@@ -66,7 +92,9 @@ export interface Job {
   title: string;
   company: string;
   companyLogo?: string;
+  companyWebsite?: string;
   location: string;
+  country?: string;
   workArrangement: WorkArrangement;
   employmentType: EmploymentType;
   experienceLevel: ExperienceLevel;
@@ -85,9 +113,11 @@ export interface Job {
   requiredSkills: string[];
   preferredSkills: string[];
   source: JobSource;
+  sourceType?: 'ATS' | 'CareerPage' | 'JSON-LD' | 'RSS' | 'Aggregator' | 'Manual';
   sourceJobId: string;
   originalUrl: string;
   canonicalUrl: string;
+  applicationUrl?: string;
   datePosted: string;
   lastChecked: string;
   isStartup: boolean;
@@ -98,5 +128,8 @@ export interface Job {
   isDismissed?: boolean;
   isDuplicate?: boolean;
   duplicateOfId?: string;
+  freshnessStatus?: FreshnessStatus;
+  expiryDate?: string;
+  lastVerifiedAt?: string;
   isDemo?: boolean;
 }

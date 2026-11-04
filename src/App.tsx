@@ -213,6 +213,7 @@ export default function App() {
         {activeTab === 'discovery' && (
           <JobDiscoveryView
             jobs={jobs}
+            applications={applications}
             onSelectJob={(job) => setSelectedJobDetails(job)}
             onPrepareApplication={(job) => setSelectedJobToApply(job)}
             onToggleSave={handleToggleSave}

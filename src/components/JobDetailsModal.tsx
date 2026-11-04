@@ -264,6 +264,30 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
 
               <p className="text-xs text-slate-300 leading-relaxed">{match.explanation}</p>
 
+              {/* Dossier Fit Notes */}
+              {(match.isFresherEligible || match.experienceExplanation || match.locationCompatibilityNote) && (
+                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg space-y-1.5 text-xs">
+                  {match.isFresherEligible && (
+                    <div className="text-teal-300 font-semibold flex items-center gap-1.5">
+                      <span>✓ Fresher Eligible (0 yrs):</span>
+                      <span className="font-normal text-slate-300">
+                        {match.fresherExplanation || 'No formal commercial experience strictly mandated'}
+                      </span>
+                    </div>
+                  )}
+                  {match.experienceExplanation && (
+                    <div className="text-slate-400">
+                      <strong className="text-slate-300">Experience Analysis:</strong> {match.experienceExplanation}
+                    </div>
+                  )}
+                  {match.locationCompatibilityNote && (
+                    <div className="text-slate-400">
+                      <strong className="text-slate-300">Location Compatibility:</strong> {match.locationCompatibilityNote}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div className="space-y-1.5">
                   <div className="font-semibold text-emerald-400">Key Strong Matches:</div>

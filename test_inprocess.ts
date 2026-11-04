@@ -1,7 +1,21 @@
-process.env.NODE_ENV = 'test';
-import { app } from './server';
-import { Readable } from 'stream';
+import fs from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
 
+// Configure isolated test database before importing server/database
+const testDbPath = path.resolve(process.cwd(), 'data', 'test_inprocess_suite.db');
+process.env.DATABASE_PATH = testDbPath;
+process.env.NODE_ENV = 'test';
+
+// Remove old test db files if lingering
+[testDbPath, `${testDbPath}-wal`, `${testDbPath}-shm`].forEach((p) => {
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+});
+
+import { app } from './server.ts';
+import { closeDatabase, initDatabase } from './server/database.ts';
+
+// Clean helper to invoke express app in-memory
 function callApi(method: string, url: string, body?: any): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const bodyStr = body !== undefined ? JSON.stringify(body) : '';
@@ -54,206 +68,319 @@ function callApi(method: string, url: string, body?: any): Promise<{ status: num
   });
 }
 
-async function run() {
-  console.log('=== RUNNING IN-PROCESS PHASE 1 VERIFICATION TESTS ===\n');
+async function runTestSuite() {
+  console.log('=================================================================');
+  console.log('>>> STARTING SQLITE PERSISTENCE REGRESSION TEST SUITE (14 TESTS) <<<');
+  console.log(`>>> Isolated DB: ${testDbPath}`);
+  console.log('=================================================================\n');
 
-  // Test 1: Candidate Profile empty
-  console.log('Test 1: GET /api/candidate');
-  const cRes = await callApi('GET', '/api/candidate');
-  console.log('  Status:', cRes.status);
-  console.log('  Candidate Name:', JSON.stringify(cRes.body.name));
-  console.log('  Candidate Skills:', cRes.body.skills);
-  console.log('  Experience Count:', cRes.body.experience?.length);
-  if (cRes.body.name === '' && cRes.body.skills?.length === 0 && cRes.body.experience?.length === 0) {
-    console.log('  -> PASS: Real empty candidate profile initialized.\n');
+  initDatabase(testDbPath);
+
+  // Test 1: Fresh database initializes with empty records
+  console.log('Test 1: Fresh database initializes with empty records');
+  const candRes = await callApi('GET', '/api/candidate');
+  const jobsRes = await callApi('GET', '/api/jobs');
+  const appsRes = await callApi('GET', '/api/applications');
+  const emailsRes = await callApi('GET', '/api/emails');
+  const notifsRes = await callApi('GET', '/api/notifications');
+  const connsRes = await callApi('GET', '/api/connectors');
+
+  if (
+    candRes.status === 200 &&
+    candRes.body.name === '' &&
+    jobsRes.body.total === 0 &&
+    appsRes.body.length === 0 &&
+    emailsRes.body.length === 0 &&
+    notifsRes.body.length === 0 &&
+    connsRes.body.length === 0
+  ) {
+    console.log('  -> PASS: Database tables created and clean empty records initialized.\n');
   } else {
-    console.error('  -> FAIL: Profile contains unexpected data!\n');
-    process.exit(1);
+    throw new Error('Test 1 Failed: Initial database is not empty!');
   }
 
-  // Test 2: Jobs empty
-  console.log('Test 2: GET /api/jobs');
-  const jRes = await callApi('GET', '/api/jobs');
-  console.log('  Status:', jRes.status);
-  console.log('  Total Jobs:', jRes.body.total);
-  console.log('  Jobs Array Length:', jRes.body.jobs?.length);
-  if (jRes.body.total === 0 && jRes.body.jobs?.length === 0) {
-    console.log('  -> PASS: Initial jobs catalog is 0.\n');
+  // Test 2: Candidate profile can be created and retrieved
+  console.log('Test 2: Candidate profile can be created and retrieved');
+  const updateRes = await callApi('PUT', '/api/candidate', {
+    name: 'Morgan Rivera',
+    email: 'morgan.rivera@example.com',
+    headline: 'Senior Full Stack Engineer',
+    location: 'Denver, CO',
+    skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'Docker'],
+  });
+  const getCandRes = await callApi('GET', '/api/candidate');
+
+  if (
+    updateRes.status === 200 &&
+    getCandRes.body.name === 'Morgan Rivera' &&
+    getCandRes.body.email === 'morgan.rivera@example.com' &&
+    getCandRes.body.skills.includes('TypeScript')
+  ) {
+    console.log('  -> PASS: Candidate profile saved and retrieved from SQLite successfully.\n');
   } else {
-    console.error('  -> FAIL: Jobs catalog is not empty!\n');
-    process.exit(1);
+    throw new Error('Test 2 Failed: Candidate profile could not be updated or retrieved!');
   }
 
-  // Test 3: Applications empty
-  console.log('Test 3: GET /api/applications');
-  const aRes = await callApi('GET', '/api/applications');
-  console.log('  Status:', aRes.status);
-  console.log('  Applications count:', aRes.body.length);
-  if (Array.isArray(aRes.body) && aRes.body.length === 0) {
-    console.log('  -> PASS: Applications store is 0.\n');
-  } else {
-    console.error('  -> FAIL: Applications store is not empty!\n');
-    process.exit(1);
-  }
-
-  // Test 4: Emails empty
-  console.log('Test 4: GET /api/emails');
-  const eRes = await callApi('GET', '/api/emails');
-  console.log('  Status:', eRes.status);
-  console.log('  Emails count:', eRes.body.length);
-  if (Array.isArray(eRes.body) && eRes.body.length === 0) {
-    console.log('  -> PASS: Recruiter emails store is 0.\n');
-  } else {
-    console.error('  -> FAIL: Emails store is not empty!\n');
-    process.exit(1);
-  }
-
-  // Test 5: Notifications empty
-  console.log('Test 5: GET /api/notifications');
-  const nRes = await callApi('GET', '/api/notifications');
-  console.log('  Status:', nRes.status);
-  console.log('  Notifications count:', nRes.body.length);
-  if (Array.isArray(nRes.body) && nRes.body.length === 0) {
-    console.log('  -> PASS: Notifications store is 0.\n');
-  } else {
-    console.error('  -> FAIL: Notifications store is not empty!\n');
-    process.exit(1);
-  }
-
-  // Test 6: Connectors empty
-  console.log('Test 6: GET /api/connectors');
-  const connRes = await callApi('GET', '/api/connectors');
-  console.log('  Status:', connRes.status);
-  console.log('  Connectors count:', connRes.body.length);
-  if (Array.isArray(connRes.body) && connRes.body.length === 0) {
-    console.log('  -> PASS: Connectors store is 0.\n');
-  } else {
-    console.error('  -> FAIL: Connectors store is not empty!\n');
-    process.exit(1);
-  }
-
-  // Test 7: Resume upload & parsing
-  console.log('Test 7: POST /api/candidate/upload-resume');
-  const testResumeText = `
-SARAH JENKINS
-Full-Stack Cloud Engineer | Austin, TX | sjenkins@example.com
-Summary: Experienced software engineer building scalable web applications in React, TypeScript, Node.js, and AWS.
-Skills: TypeScript, React, Node.js, Express, PostgreSQL, AWS, Docker
+  // Test 3: Resume upload persists parsed information
+  console.log('Test 3: Resume upload persists parsed information and version history');
+  const sampleResume = `
+MORGAN RIVERA
+Senior Full Stack Engineer | Denver, CO | morgan.rivera@example.com
+Summary: Accomplished engineer building scalable cloud applications using TypeScript, React, and PostgreSQL.
+Skills: TypeScript, React, Node.js, Python, PostgreSQL, Docker, Kubernetes, AWS
 Experience:
-Senior Software Engineer at CloudWorks (2022 - Present)
-- Designed and built high-concurrency microservices with Node.js and TypeScript.
+Senior Software Engineer at Apex Cloud (2022 - Present)
+- Engineered distributed microservices with Node.js and TypeScript handling 50k requests per second.
 Education:
-B.S. Computer Engineering, UT Austin (2021)
+B.S. in Computer Science, University of Colorado Boulder (2021)
 `;
   const uploadRes = await callApi('POST', '/api/candidate/upload-resume', {
-    rawText: testResumeText,
-    fileName: 'Sarah_Jenkins_Resume.txt',
+    rawText: sampleResume,
+    fileName: 'Morgan_Rivera_Resume_2026.pdf',
   });
-  console.log('  Status:', uploadRes.status);
-  console.log('  Parsed Name:', uploadRes.body.profile?.name);
-  console.log('  Extracted Skills:', uploadRes.body.profile?.skills);
-  if (uploadRes.body.success && uploadRes.body.profile?.skills?.length > 0) {
-    console.log('  -> PASS: Resume upload and skill extraction working.\n');
+  const candAfterResume = await callApi('GET', '/api/candidate');
+
+  if (
+    uploadRes.status === 200 &&
+    candAfterResume.body.resumeVersions.length >= 1 &&
+    candAfterResume.body.resumeVersions[0].fileName === 'Morgan_Rivera_Resume_2026.pdf' &&
+    candAfterResume.body.rawResumeText.includes('Apex Cloud')
+  ) {
+    console.log('  -> PASS: Resume upload, parsing, and version tracking persisted in SQLite.\n');
   } else {
-    console.error('  -> FAIL: Resume upload failed!\n');
-    process.exit(1);
+    throw new Error('Test 3 Failed: Resume upload failed to persist version or raw text!');
   }
 
-  // Test 8: Job Import & Deduplication
-  console.log('Test 8: POST /api/jobs/import');
+  // Test 4: Job import persists listings
+  console.log('Test 4: Job import persists listings');
   const importBatch = [
     {
-      title: 'Full Stack Engineer',
-      company: 'TechFrontier Solutions',
-      location: 'Austin, TX',
+      title: 'Senior Full-Stack Engineer',
+      company: 'Apex Cloud Systems',
+      location: 'Denver, CO',
       workArrangement: 'Hybrid',
       employmentType: 'Full-time',
-      experienceLevel: 'Mid',
+      experienceLevel: 'Senior',
       skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL'],
-      url: 'https://techfrontier.example.com/jobs/401',
+      url: 'https://apexcloud.example.com/jobs/101',
     },
     {
-      title: 'DevOps Engineer',
-      company: 'CloudMatrix Inc',
+      title: 'DevOps & Infrastructure Architect',
+      company: 'Quantis AI',
       location: 'Remote',
       workArrangement: 'Remote',
       employmentType: 'Full-time',
-      experienceLevel: 'Senior',
-      skills: ['AWS', 'Docker', 'Kubernetes'],
-      url: 'https://cloudmatrix.example.com/jobs/402',
+      experienceLevel: 'Lead',
+      skills: ['Docker', 'Kubernetes', 'AWS', 'Terraform'],
+      url: 'https://quantis.example.com/careers/402',
     },
   ];
-
-  const impRes1 = await callApi('POST', '/api/jobs/import', {
+  const importRes = await callApi('POST', '/api/jobs/import', {
     items: importBatch,
     format: 'json',
   });
-  console.log('  Import 1 Status:', impRes1.status);
-  console.log('  Added Count:', impRes1.body.addedCount);
-  console.log('  Duplicate Count:', impRes1.body.duplicateCount);
-  console.log('  Total Jobs:', impRes1.body.totalJobs);
+  const jobsAfterImport = await callApi('GET', '/api/jobs');
 
-  // Deduplication test: re-import duplicate
-  const impRes2 = await callApi('POST', '/api/jobs/import', {
+  if (importRes.body.addedCount === 2 && jobsAfterImport.body.total === 2) {
+    console.log('  -> PASS: Imported 2 jobs into SQLite jobs table.\n');
+  } else {
+    throw new Error('Test 4 Failed: Job import did not persist jobs properly!');
+  }
+
+  // Test 5: Duplicate jobs are rejected or correctly deduplicated
+  console.log('Test 5: Duplicate jobs are rejected or correctly deduplicated');
+  const duplicateImportRes = await callApi('POST', '/api/jobs/import', {
     items: [importBatch[0]],
     format: 'json',
   });
-  console.log('  Import 2 (Duplicate) Added:', impRes2.body.addedCount);
-  console.log('  Import 2 (Duplicate) Filtered:', impRes2.body.duplicateCount);
+  const jobsAfterDup = await callApi('GET', '/api/jobs');
 
-  if (impRes1.body.addedCount === 2 && impRes2.body.duplicateCount === 1) {
-    console.log('  -> PASS: Job import and deduplication working.\n');
+  if (
+    duplicateImportRes.body.addedCount === 0 &&
+    duplicateImportRes.body.duplicateCount === 1 &&
+    jobsAfterDup.body.total === 2
+  ) {
+    console.log('  -> PASS: Duplicate job detected, filtered out, catalog size unchanged.\n');
   } else {
-    console.error('  -> FAIL: Job import or deduplication failed!\n');
-    process.exit(1);
+    throw new Error('Test 5 Failed: Deduplication logic failed!');
   }
 
-  // Test 9: Match Calculation on newly imported job
-  console.log('Test 9: POST /api/jobs/:id/match');
-  const jobsListRes = await callApi('GET', '/api/jobs');
-  const jobToMatch = jobsListRes.body.jobs[0];
-  console.log('  Matching Job:', jobToMatch.title, 'at', jobToMatch.company);
-  const mRes = await callApi('POST', `/api/jobs/${jobToMatch.id}/match`);
-  console.log('  Match Status:', mRes.status);
-  console.log('  Overall Score:', mRes.body.overallScore);
-  console.log('  Matched Skills:', mRes.body.breakdown?.skillsMatch?.matchedSkills);
-  if (mRes.body.overallScore > 0) {
-    console.log('  -> PASS: Job matching works against newly uploaded candidate profile.\n');
+  // Test 6: Job save and dismiss states persist
+  console.log('Test 6: Job save and dismiss states persist');
+  const testJob = jobsAfterImport.body.jobs[0];
+  const saveRes = await callApi('PATCH', `/api/jobs/${testJob.id}/save`);
+  const jobAfterSave = await callApi('GET', `/api/jobs/${testJob.id}`);
+  const dismissRes = await callApi('PATCH', `/api/jobs/${testJob.id}/dismiss`);
+  const jobAfterDismiss = await callApi('GET', `/api/jobs/${testJob.id}`);
+
+  // Re-enable so it can be matched
+  await callApi('PATCH', `/api/jobs/${testJob.id}/dismiss`);
+
+  if (saveRes.body.isSaved === true && jobAfterSave.body.isSaved === true && jobAfterDismiss.body.isDismissed === true) {
+    console.log('  -> PASS: Job saved and dismissed states successfully toggled and persisted in SQLite.\n');
   } else {
-    console.error('  -> FAIL: Job matching score invalid!\n');
-    process.exit(1);
+    throw new Error('Test 6 Failed: Save or dismiss states did not persist!');
   }
 
-  // Test 10: Application Creation & Status Update
-  console.log('Test 10: POST & PATCH /api/applications');
-  const appCreateRes = await callApi('POST', '/api/applications', {
-    jobId: jobToMatch.id,
-    notes: 'Submitted application on career portal',
+  // Test 7: Job matching still works
+  console.log('Test 7: Job matching still works');
+  const matchRes = await callApi('POST', `/api/jobs/${testJob.id}/match`);
+  const jobAfterMatch = await callApi('GET', `/api/jobs/${testJob.id}`);
+
+  if (
+    matchRes.status === 200 &&
+    matchRes.body.overallScore > 0 &&
+    jobAfterMatch.body.matchResult?.overallScore === matchRes.body.overallScore
+  ) {
+    console.log(`  -> PASS: 6D match computed (${matchRes.body.overallScore}%) and saved to database.\n`);
+  } else {
+    throw new Error('Test 7 Failed: Job match computation or persistence failed!');
+  }
+
+  // Test 8: Application creation works
+  console.log('Test 8: Application creation works');
+  const createRes = await callApi('POST', '/api/applications', {
+    jobId: testJob.id,
+    notes: 'Submitted initial application on company careers portal.',
   });
-  console.log('  Created App ID:', appCreateRes.body.id);
-  console.log('  Created App Status:', appCreateRes.body.status);
+  const appsAfterCreate = await callApi('GET', '/api/applications');
 
-  const appPatchRes = await callApi('PATCH', `/api/applications/${appCreateRes.body.id}`, {
+  if (
+    createRes.status === 200 &&
+    createRes.body.company === testJob.company &&
+    appsAfterCreate.body.length === 1 &&
+    appsAfterCreate.body[0].id === createRes.body.id
+  ) {
+    console.log(`  -> PASS: Application created (${createRes.body.id}) and linked to job in SQLite.\n`);
+  } else {
+    throw new Error('Test 8 Failed: Application creation failed!');
+  }
+
+  // Test 9: Application stage and notes updates persist
+  console.log('Test 9: Application stage and notes updates persist');
+  const appId = createRes.body.id;
+  const updateAppRes = await callApi('PATCH', `/api/applications/${appId}`, {
     status: 'Interview',
-    notes: 'Recruiter phone screen scheduled for next Tuesday',
+    notes: 'Technical panel interview scheduled for next Thursday 10:00 AM MST',
+    submissionConfirmed: true,
   });
-  console.log('  Updated App Status:', appPatchRes.body.status);
-  console.log('  Updated App Notes:', appPatchRes.body.notes);
+  const appsAfterUpdate = await callApi('GET', '/api/applications');
+  const updatedAppRecord = appsAfterUpdate.body.find((a: any) => a.id === appId);
 
-  if (appPatchRes.body.status === 'Interview') {
-    console.log('  -> PASS: Application creation and tracking updates working.\n');
+  if (
+    updateAppRes.status === 200 &&
+    updatedAppRecord?.status === 'Interview' &&
+    updatedAppRecord?.submissionConfirmed === true &&
+    updatedAppRecord?.timeline.length >= 2
+  ) {
+    console.log('  -> PASS: Application status and timeline updates persisted in SQLite.\n');
   } else {
-    console.error('  -> FAIL: Application update failed!\n');
-    process.exit(1);
+    throw new Error('Test 9 Failed: Application update did not persist correctly!');
   }
 
-  console.log('====================================================');
-  console.log('>>> ALL 10 TESTS EXECUTED AND PASSED SUCCESSFULLY <<<');
-  console.log('====================================================');
-  process.exit(0);
+  // Test 10: Email logging and intent classification persist
+  console.log('Test 10: Email logging and intent classification persist');
+  const emailLogRes = await callApi('POST', '/api/emails/log', {
+    from: 'recruiting@apexcloud.example.com',
+    subject: 'Invitation to Technical System Design Interview - Apex Cloud Systems',
+    fullBody: 'Hi Morgan,\nWe loved your profile and would like to invite you for a 60-minute technical interview next Thursday.\nBest,\nApex Recruiting Team',
+    applicationId: appId,
+  });
+  const emailsList = await callApi('GET', '/api/emails');
+  const loggedEmail = emailsList.body.find((e: any) => e.id === emailLogRes.body.id);
+
+  if (
+    emailLogRes.status === 200 &&
+    loggedEmail &&
+    loggedEmail.detectedType === 'interview_invite' &&
+    loggedEmail.associatedApplicationId === appId
+  ) {
+    console.log('  -> PASS: Inbound recruiter message parsed and persisted in SQLite.\n');
+  } else {
+    throw new Error('Test 10 Failed: Email logging failed!');
+  }
+
+  // Test 11: Notifications persist
+  console.log('Test 11: Notifications persist');
+  const notifsList = await callApi('GET', '/api/notifications');
+  if (notifsList.body.length >= 1) {
+    const notifId = notifsList.body[0].id;
+    const readRes = await callApi('PATCH', `/api/notifications/${notifId}/read`);
+    const notifsAfterRead = await callApi('GET', '/api/notifications');
+    const readItem = notifsAfterRead.body.find((n: any) => n.id === notifId);
+
+    if (readRes.status === 200 && readItem?.isRead === true) {
+      console.log('  -> PASS: System notifications logged, read status updated in SQLite.\n');
+    } else {
+      throw new Error('Test 11 Failed: Notification read update failed!');
+    }
+  } else {
+    throw new Error('Test 11 Failed: Expected notifications to have been created!');
+  }
+
+  // Test 12: JSON and CSV exports contain real database records
+  console.log('Test 12: JSON and CSV exports contain real database records');
+  const exportJsonRes = await callApi('GET', '/api/export?type=json');
+  const exportCsvRes = await callApi('GET', '/api/export?type=csv');
+
+  if (
+    exportJsonRes.status === 200 &&
+    exportJsonRes.body.candidate.name.toLowerCase() === 'morgan rivera' &&
+    exportJsonRes.body.jobs.length === 2 &&
+    exportJsonRes.body.applications.length === 1 &&
+    typeof exportCsvRes.body === 'string' &&
+    exportCsvRes.body.includes(testJob.company)
+  ) {
+    console.log('  -> PASS: Exports generated from live SQLite data in both JSON and CSV.\n');
+  } else {
+    throw new Error('Test 12 Failed: Database export did not return expected real data!');
+  }
+
+  // Test 13: Invalid application references are handled correctly
+  console.log('Test 13: Invalid application references are handled correctly');
+  const invalidAppRes = await callApi('POST', '/api/applications', {
+    jobId: 'nonexistent-job-uuid-12345',
+    notes: 'Should fail gracefully',
+  });
+
+  if (invalidAppRes.status === 400 && invalidAppRes.body.error) {
+    console.log(`  -> PASS: Rejected invalid foreign job reference with HTTP 400 (${invalidAppRes.body.error}).\n`);
+  } else {
+    throw new Error('Test 13 Failed: Invalid foreign reference did not produce expected error!');
+  }
+
+  // Test 14: Database errors do not produce false success responses
+  console.log('Test 14: Database errors do not produce false success responses');
+  const invalidJobPatch = await callApi('PATCH', '/api/jobs/missing-job-xyz/save');
+  const invalidAppPatch = await callApi('PATCH', '/api/applications/missing-app-xyz', { status: 'Offer' });
+
+  if (invalidJobPatch.status === 404 && invalidAppPatch.status === 404) {
+    console.log('  -> PASS: Missing records return honest HTTP 404s without phantom success.\n');
+  } else {
+    throw new Error('Test 14 Failed: Missing records did not return 404!');
+  }
+
+  console.log('=================================================================');
+  console.log('>>> ALL 14 SQLITE PERSISTENCE REGRESSION TESTS PASSED (100%) <<<');
+  console.log('=================================================================\n');
+
+  closeDatabase();
 }
 
-run().catch((err) => {
-  console.error('Fatal test error:', err);
-  process.exit(1);
-});
+runTestSuite()
+  .then(() => {
+    // Clean up test db files
+    [testDbPath, `${testDbPath}-wal`, `${testDbPath}-shm`].forEach((p) => {
+      if (fs.existsSync(p)) {
+        try {
+          fs.unlinkSync(p);
+        } catch {}
+      }
+    });
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('Test Suite Failure:', err);
+    closeDatabase();
+    process.exit(1);
+  });

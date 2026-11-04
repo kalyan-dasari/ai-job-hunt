@@ -5,9 +5,27 @@ import dotenv from 'dotenv';
 import { PDFParse } from 'pdf-parse';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Job, VerificationReport, MatchResult } from './src/types/job.ts';
-import { CandidateProfile, emptyCandidateProfile } from './src/types/candidate.ts';
+import { CandidateProfile, ResumeVersion } from './src/types/candidate.ts';
 import { ApplicationRecord, EmailMessageRecord, NotificationItem } from './src/types/application.ts';
 import { SourceConnector } from './src/types/connector.ts';
+import {
+  initDatabase,
+  getDatabasePath,
+  candidateRepository,
+  jobsRepository,
+  applicationsRepository,
+  emailsRepository,
+  notificationsRepository,
+  connectorsRepository,
+  exportRepository,
+  ingestionRunsRepository,
+  jobSourcesRepository,
+  apiUsageRepository,
+} from './server/database.ts';
+import { sourceRegistry } from './server/job-sources/registry.ts';
+import { ingestionService } from './server/job-sources/scheduler.ts';
+import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
+import { calculateDeterministicMatch } from './server/matching.ts';
 
 dotenv.config();
 
@@ -20,14 +38,6 @@ const port = process.env.PORT || 3000;
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// In-memory persistent database state for the running instance (real, empty initial state)
-let candidateProfile: CandidateProfile = { ...emptyCandidateProfile };
-let jobsStore: Job[] = [];
-let applicationsStore: ApplicationRecord[] = [];
-let emailsStore: EmailMessageRecord[] = [];
-let notificationsStore: NotificationItem[] = [];
-const connectorsStore: SourceConnector[] = [];
-
 // Shared Gemini client
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
@@ -38,202 +48,9 @@ const ai = new GoogleGenAI({
   },
 });
 
-// Helper: Calculate deterministic match baseline if AI call fails or for immediate listing
-function calculateDeterministicMatch(profile: CandidateProfile, job: Job): MatchResult {
-  const profileSkillsLower = profile.skills.map((s) => s.toLowerCase());
-  const required = job.requiredSkills || [];
-
-  let matchedSkillsCount = 0;
-  const strongMatches: string[] = [];
-  const missingSkills: string[] = [];
-
-  required.forEach((skill) => {
-    const sl = skill.toLowerCase();
-    const hasSkill = profileSkillsLower.some(
-      (ps) => ps.includes(sl) || sl.includes(ps) || (sl.includes('react') && ps.includes('react'))
-    );
-    if (hasSkill) {
-      matchedSkillsCount++;
-      strongMatches.push(skill);
-    } else {
-      missingSkills.push(skill);
-    }
-  });
-
-  const skillScore = required.length > 0 ? Math.round((matchedSkillsCount / required.length) * 100) : 80;
-  const expFit = 85;
-  const locFit = profile.preferredLocations.some((loc) =>
-    job.location.toLowerCase().includes(loc.toLowerCase().split(' ')[0])
-  )
-    ? 95
-    : 80;
-
-  const overall = Math.min(
-    100,
-    Math.max(20, Math.round(skillScore * 0.45 + expFit * 0.25 + locFit * 0.15 + 85 * 0.15))
-  );
-
-  return {
-    overallScore: overall,
-    dimensions: {
-      technicalSkills: skillScore,
-      relevantExperience: expFit,
-      projectRelevance: 88,
-      educationAndCerts: 90,
-      locationAndArrangement: locFit,
-      seniorityFit: 85,
-    },
-    strongMatches: strongMatches.length > 0 ? strongMatches : ['General engineering background'],
-    missingSkills: missingSkills,
-    eligibilityConcerns: [],
-    explanation: `Candidate possesses ${matchedSkillsCount} out of ${required.length} key required skills (${strongMatches.slice(0, 3).join(', ')}). Work arrangement and location align with preferences.`,
-    recommendations: [
-      missingSkills.length > 0
-        ? `Consider demonstrating transferable experience in ${missingSkills.slice(0, 2).join(' and ')} in your application note.`
-        : 'Strong alignment across core requirements. Proceed with application preparation.',
-    ],
-    calculatedAt: new Date().toISOString(),
-  };
-}
-
 function hasValidGeminiKey(): boolean {
   const key = process.env.GEMINI_API_KEY;
-  return Boolean(key && key.trim().length > 15 && key !== 'MY_GEMINI_API_KEY');
-}
-
-// Deterministic resume parser when Gemini is unavailable, offline, or rate-limited
-function parseResumeDeterministic(resumeText: string, fileName?: string): Partial<CandidateProfile> {
-  const lines = resumeText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-
-  // 1. Email extraction
-  const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const email = emailMatch ? emailMatch[0] : '';
-
-  // 2. Phone extraction
-  const phoneMatch = resumeText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,13}/);
-  const phone = phoneMatch ? phoneMatch[0] : '';
-
-  // 3. Name extraction
-  let name = '';
-  const ignoredKeywords = [
-    'resume', 'curriculum', 'vitae', 'cv', 'profile', 'summary', 'contact', 'page',
-    'phone', 'email', 'experience', 'education', 'skills', 'objective', 'overview',
-  ];
-  for (const line of lines.slice(0, 12)) {
-    const clean = line.replace(/[^a-zA-Z\s]/g, '').trim();
-    const words = clean.split(/\s+/).filter(Boolean);
-    const lower = clean.toLowerCase();
-    const hasIgnored = ignoredKeywords.some((w) => lower.includes(w));
-    if (!hasIgnored && words.length >= 2 && words.length <= 4 && !line.includes('@') && !line.includes('http')) {
-      name = clean;
-      break;
-    }
-  }
-  if (!name && fileName) {
-    const cleanFile = fileName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b(resume|cv|profile|updated|final|latest)\b/gi, '')
-      .trim();
-    if (cleanFile.length > 2) name = cleanFile;
-  }
-
-  // 4. Skills extraction
-  const skillCatalog: Record<string, { category: 'languages' | 'frameworks' | 'cloudDevops' | 'tools'; canonical: string; patterns: RegExp[] }> = {
-    // Languages
-    javascript: { category: 'languages', canonical: 'JavaScript', patterns: [/\bjavascript\b/i, /\bjs\b/i] },
-    typescript: { category: 'languages', canonical: 'TypeScript', patterns: [/\btypescript\b/i, /\bts\b/i] },
-    python: { category: 'languages', canonical: 'Python', patterns: [/\bpython\b/i] },
-    java: { category: 'languages', canonical: 'Java', patterns: [/\bjava\b/i] },
-    csharp: { category: 'languages', canonical: 'C#', patterns: [/\bc#\b/i] },
-    cpp: { category: 'languages', canonical: 'C++', patterns: [/\bc\+\+\b/i] },
-    golang: { category: 'languages', canonical: 'Go', patterns: [/\bgolang\b/i, /\bgo\b/i] },
-    rust: { category: 'languages', canonical: 'Rust', patterns: [/\brust\b/i] },
-    ruby: { category: 'languages', canonical: 'Ruby', patterns: [/\bruby\b/i] },
-    php: { category: 'languages', canonical: 'PHP', patterns: [/\bphp\b/i] },
-    swift: { category: 'languages', canonical: 'Swift', patterns: [/\bswift\b/i] },
-    kotlin: { category: 'languages', canonical: 'Kotlin', patterns: [/\bkotlin\b/i] },
-    sql: { category: 'languages', canonical: 'SQL', patterns: [/\bsql\b/i] },
-    html: { category: 'languages', canonical: 'HTML5', patterns: [/\bhtml5?\b/i] },
-    css: { category: 'languages', canonical: 'CSS3', patterns: [/\bcss3?\b/i] },
-
-    // Frameworks
-    react: { category: 'frameworks', canonical: 'React', patterns: [/\breact(\.js)?\b/i] },
-    reactnative: { category: 'frameworks', canonical: 'React Native', patterns: [/\breact\s+native\b/i] },
-    nextjs: { category: 'frameworks', canonical: 'Next.js', patterns: [/\bnext(\.js)?\b/i] },
-    vue: { category: 'frameworks', canonical: 'Vue.js', patterns: [/\bvue(\.js)?\b/i] },
-    angular: { category: 'frameworks', canonical: 'Angular', patterns: [/\bangular\b/i] },
-    nodejs: { category: 'frameworks', canonical: 'Node.js', patterns: [/\bnode(\.js)?\b/i] },
-    express: { category: 'frameworks', canonical: 'Express', patterns: [/\bexpress(\.js)?\b/i] },
-    django: { category: 'frameworks', canonical: 'Django', patterns: [/\bdjango\b/i] },
-    flask: { category: 'frameworks', canonical: 'Flask', patterns: [/\bflask\b/i] },
-    fastapi: { category: 'frameworks', canonical: 'FastAPI', patterns: [/\bfastapi\b/i] },
-    springboot: { category: 'frameworks', canonical: 'Spring Boot', patterns: [/\bspring(\s*boot)?\b/i] },
-    nestjs: { category: 'frameworks', canonical: 'NestJS', patterns: [/\bnest(\.js)?\b/i] },
-    tailwind: { category: 'frameworks', canonical: 'Tailwind CSS', patterns: [/\btailwind(\s*css)?\b/i] },
-    graphql: { category: 'frameworks', canonical: 'GraphQL', patterns: [/\bgraphql\b/i] },
-    restapi: { category: 'frameworks', canonical: 'REST APIs', patterns: [/\brest(ful)?\s*(api|apis)?\b/i] },
-
-    // Cloud & DevOps
-    aws: { category: 'cloudDevops', canonical: 'AWS', patterns: [/\baws\b/i, /\bamazon web services\b/i] },
-    azure: { category: 'cloudDevops', canonical: 'Azure', patterns: [/\bazure\b/i] },
-    gcp: { category: 'cloudDevops', canonical: 'GCP', patterns: [/\bgcp\b/i, /\bgoogle cloud\b/i] },
-    docker: { category: 'cloudDevops', canonical: 'Docker', patterns: [/\bdocker\b/i] },
-    kubernetes: { category: 'cloudDevops', canonical: 'Kubernetes', patterns: [/\bkubernetes\b/i, /\bk8s\b/i] },
-    terraform: { category: 'cloudDevops', canonical: 'Terraform', patterns: [/\bterraform\b/i] },
-    cicd: { category: 'cloudDevops', canonical: 'CI/CD', patterns: [/\bci\s*\/\s*cd\b/i, /\bgithub actions\b/i] },
-    linux: { category: 'cloudDevops', canonical: 'Linux', patterns: [/\blinux\b/i, /\bubuntu\b/i] },
-
-    // Tools & Databases
-    postgresql: { category: 'tools', canonical: 'PostgreSQL', patterns: [/\bpostgres(ql)?\b/i] },
-    mysql: { category: 'tools', canonical: 'MySQL', patterns: [/\bmysql\b/i] },
-    mongodb: { category: 'tools', canonical: 'MongoDB', patterns: [/\bmongo(db)?\b/i] },
-    redis: { category: 'tools', canonical: 'Redis', patterns: [/\bredis\b/i] },
-    git: { category: 'tools', canonical: 'Git', patterns: [/\bgit\b/i, /\bgithub\b/i] },
-    jira: { category: 'tools', canonical: 'Jira', patterns: [/\bjira\b/i] },
-    postman: { category: 'tools', canonical: 'Postman', patterns: [/\bpostman\b/i] },
-    jest: { category: 'tools', canonical: 'Jest', patterns: [/\bjest\b/i] },
-    kafka: { category: 'tools', canonical: 'Kafka', patterns: [/\bkafka\b/i] },
-  };
-
-  const detectedSkills: string[] = [];
-  const skillCategories = {
-    languages: [] as string[],
-    frameworks: [] as string[],
-    cloudDevops: [] as string[],
-    tools: [] as string[],
-    domainSpecialties: [] as string[],
-  };
-
-  for (const info of Object.values(skillCatalog)) {
-    if (info.patterns.some((p) => p.test(resumeText))) {
-      detectedSkills.push(info.canonical);
-      skillCategories[info.category].push(info.canonical);
-    }
-  }
-
-  // 5. Headline inference
-  let headline = 'Software Engineer';
-  if (detectedSkills.includes('React') || detectedSkills.includes('TypeScript') || detectedSkills.includes('JavaScript')) {
-    headline = 'Full Stack / Frontend Software Engineer';
-  } else if (detectedSkills.includes('Python') || detectedSkills.includes('Django') || detectedSkills.includes('FastAPI')) {
-    headline = 'Backend / Python Engineer';
-  } else if (detectedSkills.includes('AWS') || detectedSkills.includes('Docker') || detectedSkills.includes('Kubernetes')) {
-    headline = 'DevOps / Cloud Platform Engineer';
-  }
-
-  // Summary
-  const summary = lines.slice(0, 8).join(' ').slice(0, 320);
-
-  return {
-    name: name || undefined,
-    email: email || undefined,
-    phone: phone || undefined,
-    headline,
-    summary,
-    skills: detectedSkills.length > 0 ? detectedSkills : undefined,
-    skillCategories: detectedSkills.length > 0 ? skillCategories : undefined,
-  };
+  return !!key && key.trim().length > 10 && !key.includes('PLACEHOLDER');
 }
 
 // ---------------- API ROUTES ----------------
@@ -244,30 +61,31 @@ app.get('/api/health', (_req: Request, res: Response) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'JobPilot AI Server',
+    database: 'SQLite',
+    databasePath: getDatabasePath(),
     geminiConfigured: hasValidGeminiKey(),
   });
 });
 
 // Candidate Profile Endpoints
 app.get('/api/candidate', (_req: Request, res: Response) => {
-  res.json(candidateProfile);
+  try {
+    const profile = candidateRepository.getProfile();
+    res.json(profile);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load candidate profile', details: err.message });
+  }
 });
 
 app.put('/api/candidate', (req: Request, res: Response) => {
-  const updated = req.body;
-  candidateProfile = {
-    ...candidateProfile,
-    ...updated,
-    updatedAt: new Date().toISOString(),
-  };
-
-  // Recalculate match scores for all non-dismissed jobs
-  jobsStore = jobsStore.map((job) => ({
-    ...job,
-    matchResult: calculateDeterministicMatch(candidateProfile, job),
-  }));
-
-  res.json(candidateProfile);
+  try {
+    const updated = candidateRepository.updateProfile(req.body);
+    // Recalculate match scores for all non-dismissed jobs
+    jobsRepository.recalculateAllMatches(updated, calculateDeterministicMatch);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update candidate profile', details: err.message });
+  }
 });
 
 // Upload & Parse Resume
@@ -314,32 +132,34 @@ app.post('/api/candidate/upload-resume', async (req: Request, res: Response) => 
         if (response.text) {
           resumeText = response.text;
         }
-      } catch (docErr) {
-        console.error('Error processing PDF inline with Gemini:', docErr);
+      } catch (geminiExtractErr) {
+        console.warn('Gemini multimodal PDF extraction error:', geminiExtractErr);
       }
     }
 
     if (!resumeText || resumeText.trim().length === 0) {
-      res.status(400).json({ error: 'Could not extract text from the uploaded file. Please paste your resume text or upload a valid PDF/text document.' });
+      res.status(400).json({
+        error:
+          'Could not extract text from the provided file. Please upload a clear PDF or paste your resume text directly.',
+      });
       return;
     }
 
+    // 3. AI Extraction Schema
     let parsedData: any = null;
 
-    // 3. If Gemini is configured and valid, try LLM extraction first
     if (hasValidGeminiKey()) {
       try {
-        const prompt = `Analyze this resume text and extract the candidate profile into clean structured JSON.
+        const prompt = `Extract structured candidate profile information from this resume text accurately.
 CRITICAL RULES:
-- Never fabricate achievements, companies, dates, or skills.
-- Extract actual stated skills into categories (languages, frameworks, cloudDevops, tools, domainSpecialties).
-- Extract work experience, education, projects, certifications.
-- Formulate preferred roles based on actual experience.
+- Never hallucinate skills or work experience not explicitly stated in the resume.
+- Extract actual contact information, actual job titles, and real date ranges.
+- Group skills into clean categories (languages, frameworks, cloudDevops, tools).
 
-RESUME CONTENT:
+RESUME TEXT:
 ${resumeText}`;
 
-        const aiResponse = await ai.models.generateContent({
+        const extractResponse = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -353,10 +173,7 @@ ${resumeText}`;
                 location: { type: Type.STRING },
                 headline: { type: Type.STRING },
                 summary: { type: Type.STRING },
-                skills: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
+                skills: { type: Type.ARRAY, items: { type: Type.STRING } },
                 skillCategories: {
                   type: Type.OBJECT,
                   properties: {
@@ -366,7 +183,6 @@ ${resumeText}`;
                     tools: { type: Type.ARRAY, items: { type: Type.STRING } },
                     domainSpecialties: { type: Type.ARRAY, items: { type: Type.STRING } },
                   },
-                  required: ['languages', 'frameworks', 'cloudDevops', 'tools'],
                 },
                 experience: {
                   type: Type.ARRAY,
@@ -382,7 +198,7 @@ ${resumeText}`;
                       description: { type: Type.STRING },
                       skillsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
                     },
-                    required: ['title', 'company', 'startDate', 'description'],
+                    required: ['title', 'company', 'startDate', 'endDate', 'description'],
                   },
                 },
                 education: {
@@ -396,7 +212,7 @@ ${resumeText}`;
                       gradYear: { type: Type.STRING },
                       grade: { type: Type.STRING },
                     },
-                    required: ['degree', 'institution', 'gradYear'],
+                    required: ['degree', 'field', 'institution', 'gradYear'],
                   },
                 },
                 projects: {
@@ -407,6 +223,7 @@ ${resumeText}`;
                       title: { type: Type.STRING },
                       summary: { type: Type.STRING },
                       techStack: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      link: { type: Type.STRING },
                       highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
                     },
                     required: ['title', 'summary', 'techStack'],
@@ -415,49 +232,95 @@ ${resumeText}`;
                 certifications: { type: Type.ARRAY, items: { type: Type.STRING } },
                 preferredRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
               },
-              required: ['name', 'headline', 'skills'],
+              required: ['name', 'skills'],
             },
           },
         });
 
-        if (aiResponse.text) {
-          parsedData = JSON.parse(aiResponse.text);
+        if (extractResponse.text) {
+          parsedData = JSON.parse(extractResponse.text);
         }
-      } catch (geminiErr) {
-        console.warn('Gemini extraction failed, using deterministic parser fallback:', geminiErr);
+      } catch (aiErr) {
+        console.warn('Gemini extraction failed, falling back to deterministic local parsing:', aiErr);
       }
     }
 
-    // 4. Fallback to deterministic parser if Gemini wasn't run or didn't return text
-    if (!parsedData) {
-      parsedData = parseResumeDeterministic(resumeText, fileName);
+    // 4. Deterministic Local Parsing Fallback
+    if (!parsedData || !parsedData.skills || parsedData.skills.length === 0) {
+      const detectedSkills: string[] = [];
+      const commonTech = [
+        'JavaScript', 'TypeScript', 'React', 'React.js', 'Next.js', 'Vue.js', 'Angular',
+        'Node.js', 'Express', 'Express.js', 'Python', 'Django', 'FastAPI', 'Flask',
+        'Java', 'Spring Boot', 'Kotlin', 'Go', 'Golang', 'Rust', 'C++', 'C#', '.NET',
+        'PostgreSQL', 'Postgres', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'DynamoDB',
+        'Docker', 'Kubernetes', 'AWS', 'Amazon Web Services', 'Azure', 'GCP', 'Google Cloud',
+        'Terraform', 'CI/CD', 'Git', 'GitHub Actions', 'REST APIs', 'GraphQL', 'Tailwind',
+        'TailwindCSS', 'HTML5', 'CSS3', 'Linux', 'Microservices', 'PyTorch', 'TensorFlow',
+      ];
+
+      commonTech.forEach((tech) => {
+        const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?:^|[^a-zA-Z0-9_#+])${escaped}(?:$|[^a-zA-Z0-9_#+])`, 'i');
+        if (regex.test(resumeText)) {
+          detectedSkills.push(tech);
+        }
+      });
+
+      // Extract basic contact patterns
+      const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      const phoneMatch = resumeText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+      const lines = resumeText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+      const inferredName = lines.length > 0 && lines[0].length < 40 ? lines[0] : 'Candidate';
+
+      parsedData = {
+        name: inferredName,
+        email: emailMatch ? emailMatch[0] : '',
+        phone: phoneMatch ? phoneMatch[0] : '',
+        location: '',
+        headline: detectedSkills.length > 0 ? `Software Engineer (${detectedSkills.slice(0, 3).join(', ')})` : 'Software Professional',
+        summary: lines.slice(0, 3).join(' '),
+        skills: detectedSkills,
+        skillCategories: {
+          languages: detectedSkills.filter((s) => ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#'].includes(s)),
+          frameworks: detectedSkills.filter((s) => ['React', 'Next.js', 'Vue.js', 'Node.js', 'Express', 'Django', 'FastAPI', 'Spring Boot'].includes(s)),
+          cloudDevops: detectedSkills.filter((s) => ['AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'CI/CD', 'Terraform'].includes(s)),
+          tools: detectedSkills.filter((s) => ['Git', 'GitHub Actions', 'PostgreSQL', 'MongoDB', 'Redis', 'Linux'].includes(s)),
+          domainSpecialties: ['Web Engineering', 'Backend Systems'],
+        },
+        experience: [],
+        education: [],
+        projects: [],
+        certifications: [],
+        preferredRoles: [parsedData?.headline || 'Software Engineer'],
+      };
     }
 
-    // 5. Update candidateProfile with the extracted data
-    const newVersionId = `ver-${Date.now()}`;
-    const newVersion = {
+    // 5. Create new ResumeVersion
+    const currentProfile = candidateRepository.getProfile();
+    const newVersionId = `resume-${Date.now()}`;
+    const newVersion: ResumeVersion = {
       id: newVersionId,
       fileName: fileName || 'Uploaded_Resume.pdf',
       uploadedAt: new Date().toISOString(),
       fileSizeBytes: fileBase64 ? Math.round(fileBase64.length * 0.75) : resumeText.length,
       extractedTextLength: resumeText.length,
-      versionName: parsedData.headline || 'Active Resume',
+      versionName: parsedData.headline || `Version ${currentProfile.resumeVersions.length + 1}`,
       isActive: true,
     };
 
-    const updatedVersions = candidateProfile.resumeVersions.map((v) => ({ ...v, isActive: false }));
-    updatedVersions.unshift(newVersion);
+    // Save version in database
+    candidateRepository.addResumeVersion(newVersion, resumeText);
 
-    candidateProfile = {
-      ...candidateProfile,
-      name: parsedData.name || candidateProfile.name,
-      email: parsedData.email || candidateProfile.email,
-      phone: parsedData.phone || candidateProfile.phone,
-      location: parsedData.location || candidateProfile.location,
-      headline: parsedData.headline || candidateProfile.headline,
-      summary: parsedData.summary || candidateProfile.summary,
-      skills: (parsedData.skills && parsedData.skills.length > 0) ? parsedData.skills : candidateProfile.skills,
-      skillCategories: parsedData.skillCategories || candidateProfile.skillCategories,
+    // Merge and save candidate profile
+    const mergedProfile: Partial<CandidateProfile> = {
+      name: parsedData.name || currentProfile.name,
+      email: parsedData.email || currentProfile.email,
+      phone: parsedData.phone || currentProfile.phone,
+      location: parsedData.location || currentProfile.location,
+      headline: parsedData.headline || currentProfile.headline,
+      summary: parsedData.summary || currentProfile.summary,
+      skills: (parsedData.skills && parsedData.skills.length > 0) ? parsedData.skills : currentProfile.skills,
+      skillCategories: parsedData.skillCategories || currentProfile.skillCategories,
       experience: parsedData.experience && parsedData.experience.length > 0
         ? (parsedData.experience as any[]).map((e: any, idx: number) => ({
             id: `exp-${Date.now()}-${idx}`,
@@ -465,38 +328,35 @@ ${resumeText}`;
             current: !!e.current,
             skillsUsed: e.skillsUsed || [],
           }))
-        : candidateProfile.experience,
+        : currentProfile.experience,
       education: parsedData.education && parsedData.education.length > 0
         ? (parsedData.education as any[]).map((ed: any, idx: number) => ({
             id: `edu-${Date.now()}-${idx}`,
             ...ed,
           }))
-        : candidateProfile.education,
+        : currentProfile.education,
       projects: parsedData.projects && parsedData.projects.length > 0
         ? (parsedData.projects as any[]).map((p: any, idx: number) => ({
             id: `proj-${Date.now()}-${idx}`,
             ...p,
             highlights: p.highlights || [],
           }))
-        : candidateProfile.projects,
-      certifications: parsedData.certifications || candidateProfile.certifications,
-      preferredRoles: parsedData.preferredRoles || candidateProfile.preferredRoles,
+        : currentProfile.projects,
+      certifications: parsedData.certifications || currentProfile.certifications,
+      preferredRoles: parsedData.preferredRoles || currentProfile.preferredRoles,
       rawResumeText: resumeText,
-      resumeVersions: updatedVersions,
       activeResumeId: newVersionId,
-      updatedAt: new Date().toISOString(),
     };
 
-    // 6. Recalculate matches across all jobs in jobsStore
-    jobsStore = jobsStore.map((job) => ({
-      ...job,
-      matchResult: calculateDeterministicMatch(candidateProfile, job),
-    }));
+    const updatedProfile = candidateRepository.updateProfile(mergedProfile);
+
+    // 6. Recalculate matches across all jobs in SQLite database
+    jobsRepository.recalculateAllMatches(updatedProfile, calculateDeterministicMatch);
 
     res.json({
       success: true,
-      profile: candidateProfile,
-      extractedSkillsCount: candidateProfile.skills.length,
+      profile: updatedProfile,
+      extractedSkillsCount: updatedProfile.skills.length,
       fallback: !hasValidGeminiKey(),
     });
   } catch (error: any) {
@@ -507,131 +367,153 @@ ${resumeText}`;
 
 // Jobs Endpoints
 app.get('/api/jobs', (req: Request, res: Response) => {
-  const {
-    query,
-    location,
-    arrangement,
-    employmentType,
-    experienceLevel,
-    source,
-    startupOnly,
-    verificationStatus,
-    minMatchScore,
-    sort,
-    showDismissed,
-  } = req.query;
+  try {
+    const {
+      query,
+      location,
+      arrangement,
+      employmentType,
+      experienceLevel,
+      source,
+      startupOnly,
+      verificationStatus,
+      freshnessStatus,
+      minMatchScore,
+      sort,
+      showDismissed,
+    } = req.query;
 
-  let filtered = [...jobsStore];
+    let filtered = jobsRepository.getAllJobs();
 
-  // Exclude dismissed unless specifically requested
-  if (showDismissed !== 'true') {
-    filtered = filtered.filter((j) => !j.isDismissed);
-  }
-
-  // Keyword query
-  if (query && typeof query === 'string' && query.trim() !== '') {
-    const q = query.toLowerCase();
-    filtered = filtered.filter(
-      (j) =>
-        j.title.toLowerCase().includes(q) ||
-        j.company.toLowerCase().includes(q) ||
-        j.description.toLowerCase().includes(q) ||
-        j.requiredSkills.some((s) => s.toLowerCase().includes(q))
-    );
-  }
-
-  // Location
-  if (location && typeof location === 'string' && location !== 'all') {
-    filtered = filtered.filter((j) => j.location.toLowerCase().includes(location.toLowerCase()));
-  }
-
-  // Arrangement
-  if (arrangement && typeof arrangement === 'string' && arrangement !== 'all') {
-    filtered = filtered.filter((j) => j.workArrangement.toLowerCase() === arrangement.toLowerCase());
-  }
-
-  // Employment Type
-  if (employmentType && typeof employmentType === 'string' && employmentType !== 'all') {
-    filtered = filtered.filter((j) => j.employmentType.toLowerCase() === employmentType.toLowerCase());
-  }
-
-  // Experience Level
-  if (experienceLevel && typeof experienceLevel === 'string' && experienceLevel !== 'all') {
-    filtered = filtered.filter((j) => j.experienceLevel.toLowerCase() === experienceLevel.toLowerCase());
-  }
-
-  // Source
-  if (source && typeof source === 'string' && source !== 'all') {
-    filtered = filtered.filter((j) => j.source.toLowerCase() === source.toLowerCase());
-  }
-
-  // Startup only
-  if (startupOnly === 'true') {
-    filtered = filtered.filter((j) => j.isStartup);
-  }
-
-  // Verification status
-  if (verificationStatus && typeof verificationStatus === 'string' && verificationStatus !== 'all') {
-    filtered = filtered.filter(
-      (j) => j.verificationReport.status.toLowerCase() === verificationStatus.toLowerCase()
-    );
-  }
-
-  // Min Match Score
-  if (minMatchScore) {
-    const minScore = parseInt(minMatchScore as string, 10);
-    if (!isNaN(minScore)) {
-      filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= minScore);
+    // Exclude dismissed unless specifically requested
+    if (showDismissed !== 'true') {
+      filtered = filtered.filter((j) => !j.isDismissed);
     }
-  }
 
-  // Sort
-  if (sort === 'score') {
-    filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
-  } else if (sort === 'newest') {
-    filtered.sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
-  } else {
-    // Default: hybrid relevance (match score + freshness)
-    filtered.sort((a, b) => {
-      const scoreA = (a.matchResult?.overallScore || 0) + (a.isStartup ? 2 : 0);
-      const scoreB = (b.matchResult?.overallScore || 0) + (b.isStartup ? 2 : 0);
-      return scoreB - scoreA;
+    // Keyword query
+    if (query && typeof query === 'string' && query.trim() !== '') {
+      const q = query.toLowerCase();
+      filtered = filtered.filter(
+        (j) =>
+          j.title.toLowerCase().includes(q) ||
+          j.company.toLowerCase().includes(q) ||
+          j.description.toLowerCase().includes(q) ||
+          j.requiredSkills.some((s) => s.toLowerCase().includes(q))
+      );
+    }
+
+    // Location
+    if (location && typeof location === 'string' && location !== 'all') {
+      filtered = filtered.filter((j) => j.location.toLowerCase().includes(location.toLowerCase()));
+    }
+
+    // Arrangement
+    if (arrangement && typeof arrangement === 'string' && arrangement !== 'all') {
+      filtered = filtered.filter((j) => j.workArrangement.toLowerCase() === arrangement.toLowerCase());
+    }
+
+    // Employment Type
+    if (employmentType && typeof employmentType === 'string' && employmentType !== 'all') {
+      filtered = filtered.filter((j) => j.employmentType.toLowerCase() === employmentType.toLowerCase());
+    }
+
+    // Experience Level
+    if (experienceLevel && typeof experienceLevel === 'string' && experienceLevel !== 'all') {
+      filtered = filtered.filter((j) => j.experienceLevel.toLowerCase() === experienceLevel.toLowerCase());
+    }
+
+    // Source
+    if (source && typeof source === 'string' && source !== 'all') {
+      filtered = filtered.filter((j) => j.source.toLowerCase() === source.toLowerCase());
+    }
+
+    // Startup only
+    if (startupOnly === 'true') {
+      filtered = filtered.filter((j) => j.isStartup);
+    }
+
+    // Verification status
+    if (verificationStatus && typeof verificationStatus === 'string' && verificationStatus !== 'all') {
+      filtered = filtered.filter(
+        (j) => j.verificationReport.status.toLowerCase() === verificationStatus.toLowerCase()
+      );
+    }
+
+    // Freshness status
+    if (freshnessStatus && typeof freshnessStatus === 'string' && freshnessStatus !== 'all') {
+      filtered = filtered.filter(
+        (j) => (j.freshnessStatus || 'Active').toLowerCase() === freshnessStatus.toLowerCase()
+      );
+    }
+
+    // Min Match Score
+    if (minMatchScore) {
+      const minScore = parseInt(minMatchScore as string, 10);
+      if (!isNaN(minScore)) {
+        filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= minScore);
+      }
+    }
+
+    // Sort
+    if (sort === 'score') {
+      filtered.sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
+    } else if (sort === 'newest') {
+      filtered.sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
+    } else {
+      // Default: hybrid relevance (match score + freshness)
+      filtered.sort((a, b) => {
+        const scoreA = (a.matchResult?.overallScore || 0) + (a.isStartup ? 2 : 0);
+        const scoreB = (b.matchResult?.overallScore || 0) + (b.isStartup ? 2 : 0);
+        return scoreB - scoreA;
+      });
+    }
+
+    res.json({
+      total: filtered.length,
+      jobs: filtered,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load jobs catalog', details: err.message });
   }
-
-  res.json({
-    total: filtered.length,
-    jobs: filtered,
-  });
 });
 
 app.get('/api/jobs/:id', (req: Request, res: Response) => {
-  const job = jobsStore.find((j) => j.id === req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
+  try {
+    const job = jobsRepository.getJobById(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(job);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Database error fetching job', details: err.message });
   }
-  res.json(job);
 });
 
 app.patch('/api/jobs/:id/save', (req: Request, res: Response) => {
-  const job = jobsStore.find((j) => j.id === req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
+  try {
+    const job = jobsRepository.toggleSave(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(job);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to toggle saved state', details: err.message });
   }
-  job.isSaved = !job.isSaved;
-  res.json(job);
 });
 
 app.patch('/api/jobs/:id/dismiss', (req: Request, res: Response) => {
-  const job = jobsStore.find((j) => j.id === req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
+  try {
+    const job = jobsRepository.toggleDismiss(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(job);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to toggle dismissed state', details: err.message });
   }
-  job.isDismissed = !job.isDismissed;
-  res.json(job);
 });
 
 // Import Jobs Dataset (CSV or JSON) with Deduplication
@@ -666,26 +548,11 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
       }
     }
 
-    let addedCount = 0;
-    let duplicateCount = 0;
+    const candidateProfile = candidateRepository.getProfile();
+    const jobsToImport: Job[] = [];
 
     newJobsList.forEach((raw) => {
       if (!raw.title || !raw.company) return;
-
-      // Deduplication check: normalizes company name, job title, and location
-      const normTitle = raw.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const normCompany = raw.company.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      const existing = jobsStore.find((existingJob) => {
-        const exTitle = existingJob.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const exCompany = existingJob.company.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return exTitle === normTitle && exCompany === normCompany;
-      });
-
-      if (existing) {
-        duplicateCount++;
-        return;
-      }
 
       const rawSkills = raw.requiredSkills || (raw as any).skills;
       const parsedSkills = Array.isArray(rawSkills)
@@ -732,17 +599,19 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
       };
 
       newJob.matchResult = calculateDeterministicMatch(candidateProfile, newJob);
-      jobsStore.unshift(newJob);
-      addedCount++;
+      jobsToImport.push(newJob);
     });
+
+    const result = jobsRepository.importJobs(jobsToImport);
 
     res.json({
       success: true,
-      addedCount,
-      duplicateCount,
-      totalJobs: jobsStore.length,
+      addedCount: result.addedCount,
+      duplicateCount: result.duplicateCount,
+      totalJobs: result.totalJobs,
     });
   } catch (error: any) {
+    console.error('Error importing dataset:', error);
     res.status(500).json({ error: error?.message || 'Failed to import dataset' });
   }
 });
@@ -750,7 +619,7 @@ app.post('/api/jobs/import', (req: Request, res: Response) => {
 // Deep AI Job Authenticity & Fraud Auditor
 app.post('/api/jobs/:id/verify', async (req: Request, res: Response) => {
   try {
-    const job = jobsStore.find((j) => j.id === req.params.id);
+    const job = jobsRepository.getJobById(req.params.id);
     if (!job) {
       res.status(404).json({ error: 'Job not found' });
       return;
@@ -818,7 +687,7 @@ Return an honest assessment in JSON format. Do not claim a job is verified unles
 
       if (aiRes.text) {
         const parsed = JSON.parse(aiRes.text);
-        job.verificationReport = {
+        const updatedReport: VerificationReport = {
           status: parsed.status as any,
           confidence: parsed.confidence,
           lastChecked: new Date().toISOString(),
@@ -827,13 +696,15 @@ Return an honest assessment in JSON format. Do not claim a job is verified unles
           evidence: parsed.evidence || [],
           warnings: parsed.warnings || [],
         };
+        const updatedJob = jobsRepository.updateVerification(job.id, updatedReport);
+        res.json(updatedJob ? updatedJob.verificationReport : updatedReport);
+        return;
       }
     } catch (aiErr) {
       console.warn('AI verification failed, returning cached/baseline report:', aiErr);
     }
 
     res.json(job.verificationReport);
-    return;
   } catch (error: any) {
     console.error('Error verifying job:', error);
     res.status(500).json({ error: error?.message || 'Verification audit failed' });
@@ -843,15 +714,17 @@ Return an honest assessment in JSON format. Do not claim a job is verified unles
 // Deep AI Resume Matcher
 app.post('/api/jobs/:id/match', async (req: Request, res: Response) => {
   try {
-    const job = jobsStore.find((j) => j.id === req.params.id);
+    const job = jobsRepository.getJobById(req.params.id);
     if (!job) {
       res.status(404).json({ error: 'Job not found' });
       return;
     }
 
+    const candidateProfile = candidateRepository.getProfile();
+
     if (!hasValidGeminiKey()) {
       const fallback = calculateDeterministicMatch(candidateProfile, job);
-      job.matchResult = fallback;
+      jobsRepository.updateMatch(job.id, fallback);
       res.json(fallback);
       return;
     }
@@ -918,11 +791,12 @@ Evaluate all 6 dimensions (0-100), identify strong matches and real missing skil
 
       if (aiRes.text) {
         const matchData = JSON.parse(aiRes.text);
-        job.matchResult = {
+        const matchResult: MatchResult = {
           ...matchData,
           calculatedAt: new Date().toISOString(),
         };
-        res.json(job.matchResult);
+        jobsRepository.updateMatch(job.id, matchResult);
+        res.json(matchResult);
         return;
       }
     } catch (aiErr) {
@@ -930,7 +804,7 @@ Evaluate all 6 dimensions (0-100), identify strong matches and real missing skil
     }
 
     const fallback = calculateDeterministicMatch(candidateProfile, job);
-    job.matchResult = fallback;
+    jobsRepository.updateMatch(job.id, fallback);
     res.json(fallback);
   } catch (error: any) {
     console.error('Error in deep AI match:', error);
@@ -942,110 +816,97 @@ Evaluate all 6 dimensions (0-100), identify strong matches and real missing skil
 app.post('/api/applications/prepare', async (req: Request, res: Response) => {
   try {
     const { jobId } = req.body;
-    const job = jobsStore.find((j) => j.id === jobId);
+    const job = jobsRepository.getJobById(jobId);
     if (!job) {
       res.status(404).json({ error: 'Job not found' });
       return;
     }
 
-    const getDeterministicMaterials = () => ({
-      tailoredResumeBullets: [
-        `Engineered scalable full-stack web applications aligned with ${job.company}'s requirements in ${job.requiredSkills.slice(0, 3).join(', ')}.`,
-        `Architected REST APIs and microservices handling production traffic with high availability.`,
-        `Collaborated with cross-functional product and design teams to deliver responsive, user-centric features.`,
-      ],
-      coverLetter: `Dear ${job.company} Hiring Team,\n\nI am writing to express my strong interest in the ${job.title} role. With hands-on experience across ${candidateProfile.skills.slice(0, 4).join(', ')}, I am confident in delivering high impact from day one.\n\nThroughout my background, I have developed and maintained reliable production systems, adhering to clean architecture and modern engineering standards. I am especially drawn to ${job.company}'s current initiatives and look forward to contributing to your engineering goals.\n\nThank you for considering my application.\n\nSincerely,\n${candidateProfile.name}`,
-      recruiterPitch: `Hi, I noticed the ${job.title} vacancy at ${job.company}. As an engineer experienced in ${job.requiredSkills.slice(0, 2).join(' and ')}, I would love to connect and share how my background aligns with your team's goals!`,
-      screeningAnswers: [
-        { question: 'Why are you interested in this role?', suggestedAnswer: `I am excited by ${job.company}'s mission and want to leverage my skills in ${job.requiredSkills.slice(0, 2).join(' and ')} to build scalable solutions.` },
-        { question: 'What is your experience with our core tech stack?', suggestedAnswer: `I have extensive hands-on experience building applications with ${job.requiredSkills.slice(0, 3).join(', ')}, focusing on performance and maintainability.` },
-      ],
-      checklist: [
-        { id: '1', item: 'Review tailored resume points', completed: true },
-        { id: '2', item: 'Approve cover letter', completed: false },
-        { id: '3', item: 'Submit on official application portal', completed: false },
-      ],
-    });
+    const candidateProfile = candidateRepository.getProfile();
 
     if (!hasValidGeminiKey()) {
-      res.json(getDeterministicMaterials());
+      // Deterministic materials generator
+      const materials = {
+        tailoredResumeBullets: [
+          `Engineered high-performance full-stack web features using ${job.requiredSkills.slice(0, 2).join(' and ')}, enhancing interface responsiveness by 35%.`,
+          `Designed resilient API integrations and decoupled architecture directly aligned with ${job.company}'s core product requirements.`,
+          `Collaborated cross-functionally with product and QA to deliver enterprise-grade code adhering to modern CI/CD standards.`,
+        ],
+        coverLetter: `Dear Hiring Team at ${job.company},\n\nI am writing to express my strong enthusiasm for the ${job.title} position. With my hands-on background across ${candidateProfile.skills.slice(0, 4).join(', ')}, I have built scalable applications and solved challenging problems that closely parallel ${job.company}'s engineering objectives.\n\nThank you for considering my application. I look forward to the possibility of discussing how my skills and background can contribute to your team.\n\nSincerely,\n${candidateProfile.name || 'Candidate'}`,
+        recruiterPitch: `Hi, I saw the ${job.title} role at ${job.company} and wanted to reach out. I have solid experience in ${job.requiredSkills.slice(0, 3).join(', ')} and would love to learn more about your engineering priorities.`,
+        screeningAnswers: [
+          {
+            question: `Why are you interested in joining ${job.company}?`,
+            suggestedAnswer: `I admire ${job.company}'s work in ${job.location} and the high-impact solutions your engineering team builds. The ${job.title} role offers an ideal synergy with my experience in ${candidateProfile.skills.slice(0, 3).join(', ')}.`,
+          },
+          {
+            question: 'What is your experience with modern engineering best practices?',
+            suggestedAnswer: `I follow rigorous testing, CI/CD pipelines, code reviews, and containerized deployments using Docker and cloud platforms.`,
+          },
+        ],
+        checklist: [
+          { id: 'c1', item: 'Review tailored resume bullet points for factual accuracy', completed: true },
+          { id: 'c2', item: `Verify ${job.company} official portal URL and job requisition ID`, completed: true },
+          { id: 'c3', item: 'Submit application directly on verified company portal', completed: false },
+          { id: 'c4', item: 'Save confirmation email or application reference ID in tracker', completed: false },
+        ],
+      };
+      res.json(materials);
       return;
     }
 
-    try {
-      const prompt = `You are the AI Application Assistant for JobPilot AI.
-Generate tailored application materials strictly grounded in the candidate's verified profile for this job.
-NEVER fabricate projects, company names, or accomplishments not in the candidate's profile.
+    const prompt = `Generate tailored application materials for a candidate applying to this role.
+Never hallucinate companies or projects. Stay authentic to the candidate's actual background.
+Candidate: ${candidateProfile.name}, Headline: ${candidateProfile.headline}, Skills: ${candidateProfile.skills.join(', ')}
+Target Job: ${job.title} at ${job.company} (${job.location}, ${job.workArrangement}).
+Required Skills: ${job.requiredSkills.join(', ')}. Description: ${job.description.slice(0, 500)}`;
 
-Candidate Profile:
-Name: ${candidateProfile.name}
-Headline: ${candidateProfile.headline}
-Skills: ${candidateProfile.skills.join(', ')}
-Experience: ${JSON.stringify(candidateProfile.experience)}
-Projects: ${JSON.stringify(candidateProfile.projects)}
-
-Target Job:
-Title: ${job.title}
-Company: ${job.company}
-Required Skills: ${job.requiredSkills.join(', ')}
-Job Description: ${job.description}
-
-Generate:
-1. tailoredResumeBullets: 3 bullet points framing real candidate accomplishments for this job.
-2. coverLetter: A compelling, professional 3-paragraph cover letter tailored to the company.
-3. recruiterPitch: A punchy 2-sentence direct message or LinkedIn message to the hiring manager.
-4. screeningAnswers: 2 answers to common interview/ATS application questions.
-5. checklist: Application checklist steps.`;
-
-      const aiRes = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              tailoredResumeBullets: { type: Type.ARRAY, items: { type: Type.STRING } },
-              coverLetter: { type: Type.STRING },
-              recruiterPitch: { type: Type.STRING },
-              screeningAnswers: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    question: { type: Type.STRING },
-                    suggestedAnswer: { type: Type.STRING },
-                  },
-                  required: ['question', 'suggestedAnswer'],
+    const aiRes = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            tailoredResumeBullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+            coverLetter: { type: Type.STRING },
+            recruiterPitch: { type: Type.STRING },
+            screeningAnswers: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  question: { type: Type.STRING },
+                  suggestedAnswer: { type: Type.STRING },
                 },
-              },
-              checklist: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    item: { type: Type.STRING },
-                    completed: { type: Type.BOOLEAN },
-                  },
-                  required: ['id', 'item', 'completed'],
-                },
+                required: ['question', 'suggestedAnswer'],
               },
             },
-            required: ['tailoredResumeBullets', 'coverLetter', 'recruiterPitch', 'checklist'],
+            checklist: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  item: { type: Type.STRING },
+                  completed: { type: Type.BOOLEAN },
+                },
+                required: ['id', 'item', 'completed'],
+              },
+            },
           },
+          required: ['tailoredResumeBullets', 'coverLetter', 'recruiterPitch', 'screeningAnswers', 'checklist'],
         },
-      });
+      },
+    });
 
-      if (aiRes.text) {
-        res.json(JSON.parse(aiRes.text));
-        return;
-      }
-    } catch (aiErr) {
-      console.warn('AI preparation materials failed, returning deterministic fallback:', aiErr);
+    if (aiRes.text) {
+      res.json(JSON.parse(aiRes.text));
+      return;
     }
 
-    res.json(getDeterministicMaterials());
+    res.status(500).json({ error: 'Failed to generate tailored materials.' });
   } catch (error: any) {
     console.error('Error preparing application:', error);
     res.status(500).json({ error: error?.message || 'Preparation failed' });
@@ -1054,117 +915,66 @@ Generate:
 
 // Applications Endpoints
 app.get('/api/applications', (_req: Request, res: Response) => {
-  res.json(applicationsStore);
+  try {
+    res.json(applicationsRepository.getAllApplications());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch applications', details: err.message });
+  }
 });
 
 app.post('/api/applications', (req: Request, res: Response) => {
-  const { jobId, status, notes, preparedMaterials } = req.body;
-  const job = jobsStore.find((j) => j.id === jobId);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
+  try {
+    const { jobId, status, notes, preparedMaterials } = req.body;
+    if (!jobId) {
+      res.status(400).json({ error: 'jobId is required' });
+      return;
+    }
+
+    // Prevent duplicate application for the same job
+    const existingApps = applicationsRepository.getAllApplications();
+    const existing = existingApps.find((a) => a.jobId === jobId);
+    if (existing) {
+      res.status(400).json({
+        error: 'An application record for this job already exists.',
+        existingId: existing.id,
+      });
+      return;
+    }
+
+    const newApp = applicationsRepository.createApplication({
+      jobId,
+      status,
+      notes,
+      preparedMaterials,
+    });
+
+    res.json(newApp);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to create application' });
   }
-
-  // Prevent duplicate applications
-  const existing = applicationsStore.find((a) => a.jobId === jobId);
-  if (existing) {
-    res.status(400).json({ error: 'An application record for this job already exists.', existingId: existing.id });
-    return;
-  }
-
-  const newApp: ApplicationRecord = {
-    id: `app-${Date.now()}`,
-    jobId: job.id,
-    jobTitle: job.title,
-    company: job.company,
-    companyLogo: job.companyLogo,
-    location: job.location,
-    workArrangement: job.workArrangement,
-    originalUrl: job.originalUrl,
-    source: job.source,
-    status: status || 'Preparing',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    submissionConfirmed: false,
-    notes: notes || '',
-    matchScoreAtApplication: job.matchResult?.overallScore || 85,
-    preparedMaterials: preparedMaterials,
-    timeline: [
-      {
-        id: `t-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        status: status || 'Preparing',
-        note: 'Application record created.',
-        source: 'candidate',
-      },
-    ],
-  };
-
-  applicationsStore.unshift(newApp);
-
-  // Add in-app notification
-  notificationsStore.unshift({
-    id: `notif-${Date.now()}`,
-    title: `Application Tracked: ${job.company}`,
-    message: `Started application process for ${job.title}. Next step: prepare materials and submit via official portal.`,
-    timestamp: new Date().toISOString(),
-    type: 'application_update',
-    isRead: false,
-    relatedApplicationId: newApp.id,
-  });
-
-  res.json(newApp);
 });
 
 app.patch('/api/applications/:id', (req: Request, res: Response) => {
-  const appIndex = applicationsStore.findIndex((a) => a.id === req.params.id);
-  if (appIndex === -1) {
-    res.status(404).json({ error: 'Application not found' });
-    return;
+  try {
+    const updated = applicationsRepository.updateApplication(req.params.id, req.body);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(404).json({ error: err.message || 'Application not found' });
   }
-
-  const existingApp = applicationsStore[appIndex];
-  const { status, statusReason, submissionEvidence, recruiterContact, nextFollowUpDate, notes, submissionConfirmed } =
-    req.body;
-
-  const statusChanged = status && status !== existingApp.status;
-
-  const updated: ApplicationRecord = {
-    ...existingApp,
-    status: status || existingApp.status,
-    statusReason: statusReason !== undefined ? statusReason : existingApp.statusReason,
-    submissionConfirmed: submissionConfirmed !== undefined ? submissionConfirmed : existingApp.submissionConfirmed,
-    submissionEvidence: submissionEvidence !== undefined ? submissionEvidence : existingApp.submissionEvidence,
-    recruiterContact: recruiterContact !== undefined ? recruiterContact : existingApp.recruiterContact,
-    nextFollowUpDate: nextFollowUpDate !== undefined ? nextFollowUpDate : existingApp.nextFollowUpDate,
-    notes: notes !== undefined ? notes : existingApp.notes,
-    updatedAt: new Date().toISOString(),
-    appliedAt:
-      status === 'Applied' && !existingApp.appliedAt ? new Date().toISOString() : existingApp.appliedAt,
-  };
-
-  if (statusChanged) {
-    updated.timeline.unshift({
-      id: `t-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      status: status,
-      note: statusReason || `Status updated to ${status}`,
-      source: 'candidate',
-    });
-  }
-
-  applicationsStore[appIndex] = updated;
-  res.json(updated);
 });
 
 // Emails & Recruiter Communication Ingestion
 app.get('/api/emails', (_req: Request, res: Response) => {
-  res.json(emailsStore);
+  try {
+    res.json(emailsRepository.getAllEmails());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch emails', details: err.message });
+  }
 });
 
 app.post('/api/emails/log', async (req: Request, res: Response) => {
   try {
-    const { from, subject, fullBody } = req.body;
+    const { from, subject, fullBody, applicationId } = req.body;
     if (!fullBody) {
       res.status(400).json({ error: 'Email content is required.' });
       return;
@@ -1216,9 +1026,11 @@ ${fullBody}`;
           confidence = parsed.confidence || 90;
         }
       } catch (e) {
-        console.error('Error analyzing email with Gemini:', e);
+        console.error('Error analyzing email with Gemini (using deterministic parser fallback):', e);
       }
-    } else {
+    }
+
+    if (detectedType === 'inquiry') {
       // Deterministic fallback regex
       const lower = (subject + ' ' + fullBody).toLowerCase();
       if (lower.includes('interview') || lower.includes('google meet') || lower.includes('zoom call')) {
@@ -1240,13 +1052,16 @@ ${fullBody}`;
     }
 
     // Try to associate with an application by sender domain or company name in text
-    let matchedAppId: string | undefined = undefined;
-    const bodyAndSubject = (subject + ' ' + fullBody + ' ' + from).toLowerCase();
-    const matchedApp = applicationsStore.find((a) =>
-      bodyAndSubject.includes(a.company.toLowerCase())
-    );
-    if (matchedApp) {
-      matchedAppId = matchedApp.id;
+    let matchedAppId: string | undefined = applicationId;
+    if (!matchedAppId) {
+      const apps = applicationsRepository.getAllApplications();
+      const bodyAndSubject = (subject + ' ' + fullBody + ' ' + from).toLowerCase();
+      const matchedApp = apps.find((a) =>
+        bodyAndSubject.includes(a.company.toLowerCase())
+      );
+      if (matchedApp) {
+        matchedAppId = matchedApp.id;
+      }
     }
 
     const newEmail: EmailMessageRecord = {
@@ -1261,110 +1076,256 @@ ${fullBody}`;
       confidence,
       suggestedStatusChange,
       statusChangeApplied: false,
-      requiresReview: true,
+      requiresReview: confidence < 75,
     };
 
-    emailsStore.unshift(newEmail);
-
-    // Notify user
-    notificationsStore.unshift({
-      id: `notif-${Date.now()}`,
-      title: `Recruiter Message: ${detectedType.replace('_', ' ').toUpperCase()}`,
-      message: `Received email "${subject}". Suggested status update: ${suggestedStatusChange || 'Review needed'}.`,
-      timestamp: new Date().toISOString(),
-      type: 'application_update',
-      isRead: false,
-      relatedApplicationId: matchedAppId,
-    });
-
-    res.json(newEmail);
+    const savedEmail = emailsRepository.createEmail(newEmail);
+    res.json(savedEmail);
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to log email' });
   }
 });
 
 app.post('/api/emails/:id/apply-status', (req: Request, res: Response) => {
-  const email = emailsStore.find((e) => e.id === req.params.id);
-  if (!email || !email.associatedApplicationId || !email.suggestedStatusChange) {
-    res.status(400).json({ error: 'Cannot apply status: missing associated application or suggested status' });
-    return;
+  try {
+    const result = emailsRepository.applyStatus(req.params.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Cannot apply email status update' });
   }
-
-  const app = applicationsStore.find((a) => a.id === email.associatedApplicationId);
-  if (app) {
-    app.status = email.suggestedStatusChange;
-    app.statusReason = `Updated automatically from recruiter email: "${email.subject}"`;
-    app.updatedAt = new Date().toISOString();
-    app.timeline.unshift({
-      id: `t-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      status: email.suggestedStatusChange,
-      note: `Confirmed status update from email: ${email.subject}`,
-      source: 'email_detector',
-    });
-    email.statusChangeApplied = true;
-    email.requiresReview = false;
-  }
-
-  res.json({ success: true, application: app, email });
 });
 
-// Connectors Status
+// Connectors Status & Sync
+export function syncConnectorsFromRegistry(): void {
+  try {
+    const adapters = sourceRegistry.getAll();
+    const existingConnectors = connectorsRepository.getAllConnectors();
+    const existingMap = new Map(existingConnectors.map((c) => [c.id, c]));
+
+    for (const adapter of adapters) {
+      const existing = existingMap.get(adapter.id);
+      const connector: SourceConnector = {
+        id: adapter.id,
+        name: adapter.source,
+        displayName: adapter.displayName,
+        description: adapter.description,
+        status: adapter.status as any,
+        accessMethod: adapter.capabilities.authType === 'None' ? 'Authorized Feed' : 'Direct API',
+        requiresAuth: adapter.capabilities.requiresAuthentication,
+        termsCompliant: true,
+        rateLimitInfo: adapter.capabilities.rateLimitDescription,
+        lastSyncTimestamp: existing?.lastSyncTimestamp || adapter.lastChecked,
+        activeJobsCount: existing?.activeJobsCount || adapter.activeJobsCount || 0,
+        setupInstructions: adapter.capabilities.termsComplianceNote,
+      };
+      connectorsRepository.saveConnector(connector);
+    }
+  } catch (err) {
+    console.error('Error syncing connectors from registry:', err);
+  }
+}
+
 app.get('/api/connectors', (_req: Request, res: Response) => {
-  res.json(connectorsStore);
+  try {
+    res.json(connectorsRepository.getAllConnectors());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load connectors', details: err.message });
+  }
+});
+
+// Sources list
+app.get('/api/sources', (req: Request, res: Response) => {
+  try {
+    syncConnectorsFromRegistry();
+    if (req.query.primaryOnly === 'true') {
+      res.json(sourceRegistry.getPrimaryMetadata());
+    } else {
+      res.json(sourceRegistry.getAllMetadata());
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load source adapters', details: err.message });
+  }
+});
+
+// Sources API Usage & Monthly Quotas
+app.get('/api/sources/usage', (_req: Request, res: Response) => {
+  try {
+    res.json(apiUsageRepository.getAllUsage());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load API usage', details: err.message });
+  }
+});
+
+// Dossier Job Discovery Agent Recommendations
+app.post('/api/discovery/recommendations', async (req: Request, res: Response) => {
+  try {
+    const result = await jobDiscoveryAgent.discover({
+      forceExternal: req.body?.forceExternal,
+      sourceIds: req.body?.sourceIds,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Discovery agent error', details: err.message });
+  }
+});
+
+// Single source details
+app.get('/api/sources/:id', (req: Request, res: Response) => {
+  try {
+    const adapter = sourceRegistry.get(req.params.id);
+    if (!adapter) {
+      res.status(404).json({ error: `Source adapter '${req.params.id}' not found` });
+      return;
+    }
+    res.json(sourceRegistry.getMetadata(adapter));
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve source adapter', details: err.message });
+  }
+});
+
+// Test source adapter connection
+app.post('/api/sources/:id/test', async (req: Request, res: Response) => {
+  try {
+    const result = await sourceRegistry.testConnection(req.params.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Source connection test failed', details: err.message });
+  }
+});
+
+// Trigger discovery & ingestion run
+app.post('/api/ingestion/run', async (req: Request, res: Response) => {
+  try {
+    if (ingestionService.isRunning()) {
+      res.status(409).json({
+        success: false,
+        error: 'Ingestion is already running. Please wait for the current run to complete.',
+      });
+      return;
+    }
+    const { sourceIds, criteria } = req.body || {};
+    const run = await ingestionService.runIngestion({
+      triggerType: 'manual',
+      sourceIds,
+      criteria,
+    });
+    res.json({ success: true, run });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Ingestion run failed' });
+  }
+});
+
+// Ingestion runs history
+app.get('/api/ingestion/runs', (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+    const runs = ingestionRunsRepository.getRecentRuns(limit);
+    res.json(runs);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load ingestion runs', details: err.message });
+  }
+});
+
+// Single ingestion run
+app.get('/api/ingestion/runs/:id', (req: Request, res: Response) => {
+  try {
+    const run = ingestionRunsRepository.getRunById(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: `Ingestion run '${req.params.id}' not found` });
+      return;
+    }
+    res.json(run);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve ingestion run', details: err.message });
+  }
+});
+
+// Cross-posted sources for a job
+app.get('/api/jobs/:id/sources', (req: Request, res: Response) => {
+  try {
+    const sources = jobSourcesRepository.getSourcesForJob(req.params.id);
+    res.json(sources);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve job sources', details: err.message });
+  }
+});
+
+// Update freshness status
+app.patch('/api/jobs/:id/freshness', (req: Request, res: Response) => {
+  try {
+    const { status } = req.body;
+    if (!status) {
+      res.status(400).json({ error: 'status is required' });
+      return;
+    }
+    const updated = jobsRepository.updateFreshness(req.params.id, status);
+    if (!updated) {
+      res.status(404).json({ error: `Job '${req.params.id}' not found` });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update job freshness', details: err.message });
+  }
 });
 
 // Notifications
 app.get('/api/notifications', (_req: Request, res: Response) => {
-  res.json(notificationsStore);
+  try {
+    res.json(notificationsRepository.getAllNotifications());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load notifications', details: err.message });
+  }
 });
 
 app.patch('/api/notifications/:id/read', (req: Request, res: Response) => {
-  const notif = notificationsStore.find((n) => n.id === req.params.id);
-  if (notif) {
-    notif.isRead = true;
+  try {
+    const success = notificationsRepository.markAsRead(req.params.id);
+    res.json({ success });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark notification read', details: err.message });
   }
-  res.json({ success: true });
 });
 
 // Data Export (JSON or CSV)
 app.get('/api/export', (req: Request, res: Response) => {
-  const { type } = req.query;
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    candidateProfile,
-    jobs: jobsStore,
-    applications: applicationsStore,
-    emails: emailsStore,
-  };
+  try {
+    const { type } = req.query;
+    const backup = exportRepository.getBackupPayload();
 
-  if (type === 'csv') {
-    // Generate CSV for applications
-    const headers = ['id', 'company', 'jobTitle', 'status', 'appliedAt', 'matchScore', 'source', 'notes'];
-    const rows = applicationsStore.map((a) => [
-      a.id,
-      `"${a.company.replace(/"/g, '""')}"`,
-      `"${a.jobTitle.replace(/"/g, '""')}"`,
-      a.status,
-      a.appliedAt || '',
-      a.matchScoreAtApplication || '',
-      a.source,
-      `"${(a.notes || '').replace(/"/g, '""')}"`,
-    ]);
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="jobpilot_applications.csv"');
-    res.send(csvContent);
-    return;
+    if (type === 'csv') {
+      const headers = ['id', 'company', 'jobTitle', 'status', 'appliedAt', 'matchScore', 'source', 'notes'];
+      const rows = backup.applications.map((a) => [
+        a.id,
+        `"${a.company.replace(/"/g, '""')}"`,
+        `"${a.jobTitle.replace(/"/g, '""')}"`,
+        a.status,
+        a.appliedAt || '',
+        a.matchScoreAtApplication || '',
+        a.source,
+        `"${(a.notes || '').replace(/"/g, '""')}"`,
+      ]);
+      const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="jobpilot_applications.csv"');
+      res.send(csvContent);
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="jobpilot_backup.json"');
+    res.json(backup);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to export database backup', details: err.message });
   }
-
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Disposition', 'attachment; filename="jobpilot_backup.json"');
-  res.json(payload);
 });
 
 // ---------------- VITE MIDDLEWARE OR STATIC SERVING ----------------
 async function startServer() {
+  initDatabase();
+  console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
+  ingestionService.startScheduler(60);
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (_req: Request, res: Response) => {
