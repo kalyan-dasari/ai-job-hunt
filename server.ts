@@ -21,11 +21,15 @@ import {
   ingestionRunsRepository,
   jobSourcesRepository,
   apiUsageRepository,
+  companySourcesRepository,
+  discoveryAttemptsRepository,
 } from './server/database.ts';
 import { sourceRegistry } from './server/job-sources/registry.ts';
 import { ingestionService } from './server/job-sources/scheduler.ts';
 import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
 import { calculateDeterministicMatch } from './server/matching.ts';
+import { careerPageCrawler } from './server/job-sources/discovery/crawler.ts';
+import { getAllAtsAdapters, getAtsAdapter } from './server/job-sources/ats/index.ts';
 
 dotenv.config();
 
@@ -1190,6 +1194,141 @@ app.post('/api/sources/:id/test', async (req: Request, res: Response) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: 'Source connection test failed', details: err.message });
+  }
+});
+
+// ---------------- COMPANY SOURCES & PUBLIC ATS ENDPOINTS ----------------
+
+// List all company sources
+app.get('/api/companies', (_req: Request, res: Response) => {
+  try {
+    const companies = companySourcesRepository.getAll();
+    res.json(companies);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load company sources', details: err.message });
+  }
+});
+
+// Add new company source (with auto ATS detection if needed)
+app.post('/api/companies', async (req: Request, res: Response) => {
+  try {
+    const { name, websiteUrl, careersUrl, atsProvider, atsSlug, crawlFrequencyHours } = req.body;
+    if (!name || !websiteUrl) {
+      res.status(400).json({ error: 'name and websiteUrl are required' });
+      return;
+    }
+
+    let detectedProvider = atsProvider;
+    let detectedSlug = atsSlug;
+
+    if (!detectedProvider || !detectedSlug) {
+      const inspected = await careerPageCrawler.inspectUrl(careersUrl || websiteUrl).catch(() => null);
+      if (inspected?.detectedAts) {
+        detectedProvider = inspected.detectedAts.provider;
+        detectedSlug = inspected.detectedAts.slug;
+      }
+    }
+
+    const id = `comp-${name.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
+    const created = companySourcesRepository.create({
+      id,
+      name,
+      websiteUrl,
+      careersUrl: careersUrl || websiteUrl,
+      atsProvider: detectedProvider || 'generic',
+      atsSlug: detectedSlug || undefined,
+      status: 'active',
+      crawlFrequencyHours: crawlFrequencyHours || 6,
+    });
+
+    res.status(201).json(created);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to create company source', details: err.message });
+  }
+});
+
+// Update company source
+app.patch('/api/companies/:id', (req: Request, res: Response) => {
+  try {
+    const updated = companySourcesRepository.update(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update company source', details: err.message });
+  }
+});
+
+// Delete company source
+app.delete('/api/companies/:id', (req: Request, res: Response) => {
+  try {
+    const success = companySourcesRepository.delete(req.params.id);
+    res.json({ success });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete company source', details: err.message });
+  }
+});
+
+// Test crawl a specific company source
+app.post('/api/companies/:id/test', async (req: Request, res: Response) => {
+  try {
+    const company = companySourcesRepository.getById(req.params.id);
+    if (!company) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    const crawlResult = await careerPageCrawler.crawlCompany(company);
+    res.json(crawlResult);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Company source test failed', details: err.message });
+  }
+});
+
+// Inspect arbitrary URL for ATS / JSON-LD / career links
+app.post('/api/companies/detect', async (req: Request, res: Response) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+    const inspected = await careerPageCrawler.inspectUrl(url);
+    res.json(inspected);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Detection failed', details: err.message });
+  }
+});
+
+// List all supported ATS adapters
+app.get('/api/ats/adapters', (_req: Request, res: Response) => {
+  try {
+    const adapters = getAllAtsAdapters().map((a) => ({
+      name: a.name,
+      displayName: a.displayName,
+      sampleUrlPattern: a.buildPublicUrl('{slug}'),
+    }));
+    res.json(adapters);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to list ATS adapters', details: err.message });
+  }
+});
+
+// Dossier / Web-First Job Discovery Run (Direct Company & ATS Engine)
+app.post('/api/discovery/run', async (req: Request, res: Response) => {
+  try {
+    const { companyIds, sourceIds, limitCompanies, criteria } = req.body || {};
+    const result = await jobDiscoveryAgent.discover({
+      companyIds,
+      sourceIds,
+      limitCompanies,
+      criteria,
+      triggerType: 'manual',
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Discovery run failed', details: err.message });
   }
 });
 

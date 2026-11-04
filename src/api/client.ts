@@ -1,7 +1,7 @@
 import { Job, VerificationReport, MatchResult } from '../types/job';
 import { CandidateProfile } from '../types/candidate';
 import { ApplicationRecord, EmailMessageRecord, NotificationItem, PreparedMaterials } from '../types/application';
-import { SourceConnector } from '../types/connector';
+import { SourceConnector, CompanySource } from '../types/connector';
 
 export const api = {
   // Candidate Profile
@@ -267,6 +267,103 @@ export const api = {
       body: JSON.stringify({ status }),
     });
     if (!res.ok) throw new Error('Failed to update job freshness');
+    return res.json();
+  },
+
+  // Company Sources (Web-First / ATS Discovery)
+  async getCompanies(): Promise<CompanySource[]> {
+    const res = await fetch('/api/companies');
+    if (!res.ok) throw new Error('Failed to fetch company sources');
+    return res.json();
+  },
+
+  async addCompany(data: {
+    name: string;
+    websiteUrl: string;
+    careersUrl?: string;
+    atsProvider?: string;
+    atsSlug?: string;
+    crawlFrequencyHours?: number;
+  }): Promise<CompanySource> {
+    const res = await fetch('/api/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to add company source');
+    }
+    return res.json();
+  },
+
+  async updateCompany(id: string, updates: Partial<CompanySource>): Promise<CompanySource> {
+    const res = await fetch(`/api/companies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error('Failed to update company source');
+    return res.json();
+  },
+
+  async deleteCompany(id: string): Promise<{ success: boolean }> {
+    const res = await fetch(`/api/companies/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete company source');
+    return res.json();
+  },
+
+  async testCompany(id: string): Promise<{
+    success: boolean;
+    jobs: any[];
+    error?: string;
+    detectedAts?: any;
+    sourceType: string;
+  }> {
+    const res = await fetch(`/api/companies/${id}/test`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to test company source');
+    return res.json();
+  },
+
+  async detectAts(url: string): Promise<{
+    url: string;
+    careersUrl?: string;
+    detectedAts?: { provider: string; slug: string; confidence: number };
+    jsonLdJobsFound: number;
+    title?: string;
+  }> {
+    const res = await fetch('/api/companies/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to inspect URL');
+    }
+    return res.json();
+  },
+
+  async runDiscovery(options?: {
+    companyIds?: string[];
+    sourceIds?: string[];
+    limitCompanies?: number;
+  }): Promise<{ run: any; recommendations: Job[] }> {
+    const res = await fetch('/api/discovery/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.details || err.error || 'Job discovery run failed');
+    }
+    return res.json();
+  },
+
+  async getAtsAdapters(): Promise<Array<{ name: string; displayName: string; sampleUrlPattern: string }>> {
+    const res = await fetch('/api/ats/adapters');
+    if (!res.ok) throw new Error('Failed to fetch ATS adapters');
     return res.json();
   },
 };
