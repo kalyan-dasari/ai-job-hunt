@@ -5,7 +5,7 @@ export function normalizeCompanySlug(company: string): string {
   if (!company) return '';
   return company
     .toLowerCase()
-    .replace(/\b(inc|ltd|llc|pvt|corp|corporation|technologies|solutions|services|systems|gmbh|co)\b/gi, '')
+    .replace(/\b(inc|ltd|llc|pvt|corp|corporation|technologies|technology|solutions|services|systems|software|gmbh|co|private|limited)\b/gi, '')
     .replace(/[^a-z0-9]/g, '')
     .trim();
 }
