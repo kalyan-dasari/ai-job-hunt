@@ -11,7 +11,7 @@ import {
   NotificationItem,
   PreparedMaterials,
 } from '../src/types/application';
-import { SourceConnector, ProviderUsageInfo } from '../src/types/connector';
+import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt } from '../src/types/connector';
 import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
@@ -368,6 +368,83 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_query_cache_lookup ON query_cache(provider, expires_at);
       `);
+    },
+  },
+  {
+    version: 4,
+    name: '004_company_sources_and_discovery_attempts',
+    up: (db: DatabaseSync) => {
+      // 1. Company Sources Table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS company_sources (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          website_url TEXT NOT NULL,
+          careers_url TEXT NOT NULL,
+          ats_provider TEXT,
+          ats_slug TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          last_crawl_at TEXT,
+          last_successful_crawl_at TEXT,
+          last_error TEXT,
+          crawl_frequency_hours INTEGER NOT NULL DEFAULT 6,
+          jobs_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_company_sources_status ON company_sources(status);
+        CREATE INDEX IF NOT EXISTS idx_company_sources_ats ON company_sources(ats_provider);
+
+        CREATE TABLE IF NOT EXISTS discovery_attempts (
+          id TEXT PRIMARY KEY,
+          company_id TEXT,
+          url TEXT NOT NULL,
+          status TEXT NOT NULL,
+          http_status INTEGER,
+          error_message TEXT,
+          jobs_found INTEGER NOT NULL DEFAULT 0,
+          attempted_at TEXT NOT NULL,
+          FOREIGN KEY (company_id) REFERENCES company_sources(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_discovery_attempts_company ON discovery_attempts(company_id);
+        CREATE INDEX IF NOT EXISTS idx_discovery_attempts_attempted_at ON discovery_attempts(attempted_at);
+      `);
+
+      // 2. Extend jobs table with extra metadata if missing
+      try { db.exec("ALTER TABLE jobs ADD COLUMN company_website TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN application_url TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN source_type TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN country TEXT DEFAULT 'India';"); } catch {}
+
+      // 3. Seed Indian Startup & Tech Company Sources
+      const INITIAL_COMPANIES = [
+        { id: 'comp-razorpay', name: 'Razorpay', website_url: 'https://razorpay.com', careers_url: 'https://razorpay.com/jobs/', ats_provider: 'greenhouse', ats_slug: 'razorpay' },
+        { id: 'comp-postman', name: 'Postman', website_url: 'https://postman.com', careers_url: 'https://www.postman.com/company/careers/', ats_provider: 'greenhouse', ats_slug: 'postman' },
+        { id: 'comp-cred', name: 'CRED', website_url: 'https://cred.club', careers_url: 'https://cred.club/careers', ats_provider: 'lever', ats_slug: 'cred' },
+        { id: 'comp-hasura', name: 'Hasura', website_url: 'https://hasura.io', careers_url: 'https://hasura.io/careers/', ats_provider: 'ashby', ats_slug: 'hasura' },
+        { id: 'comp-urbancompany', name: 'Urban Company', website_url: 'https://urbancompany.com', careers_url: 'https://www.urbancompany.com/careers', ats_provider: 'ashby', ats_slug: 'urbancompany' },
+        { id: 'comp-browserstack', name: 'BrowserStack', website_url: 'https://browserstack.com', careers_url: 'https://www.browserstack.com/careers', ats_provider: 'greenhouse', ats_slug: 'browserstack' },
+        { id: 'comp-moengage', name: 'MoEngage', website_url: 'https://moengage.com', careers_url: 'https://www.moengage.com/company/careers/', ats_provider: 'greenhouse', ats_slug: 'moengage' },
+        { id: 'comp-groww', name: 'Groww', website_url: 'https://groww.in', careers_url: 'https://groww.in/careers', ats_provider: 'lever', ats_slug: 'groww' },
+        { id: 'comp-zepto', name: 'Zepto', website_url: 'https://zeptonow.com', careers_url: 'https://www.zeptonow.com/careers', ats_provider: 'greenhouse', ats_slug: 'zepto' },
+        { id: 'comp-clevertap', name: 'CleverTap', website_url: 'https://clevertap.com', careers_url: 'https://clevertap.com/careers/', ats_provider: 'greenhouse', ats_slug: 'clevertap' },
+        { id: 'comp-shiprocket', name: 'Shiprocket', website_url: 'https://shiprocket.in', careers_url: 'https://www.shiprocket.in/careers/', ats_provider: 'smartrecruiters', ats_slug: 'Shiprocket' },
+        { id: 'comp-yellowai', name: 'Yellow.ai', website_url: 'https://yellow.ai', careers_url: 'https://yellow.ai/careers/', ats_provider: 'greenhouse', ats_slug: 'yellowai' },
+        { id: 'comp-hackerearth', name: 'HackerEarth', website_url: 'https://hackerearth.com', careers_url: 'https://hackerearth.recruitee.com/', ats_provider: 'recruitee', ats_slug: 'hackerearth' },
+        { id: 'comp-inmobi', name: 'InMobi', website_url: 'https://inmobi.com', careers_url: 'https://www.inmobi.com/company/careers/', ats_provider: 'greenhouse', ats_slug: 'inmobi' },
+        { id: 'comp-urbanpiper', name: 'UrbanPiper', website_url: 'https://urbanpiper.com', careers_url: 'https://www.urbanpiper.com/careers', ats_provider: 'greenhouse', ats_slug: 'urbanpiper' },
+        { id: 'comp-zerodha', name: 'Zerodha', website_url: 'https://zerodha.com', careers_url: 'https://zerodha.com/careers', ats_provider: 'generic', ats_slug: 'zerodha' },
+      ];
+
+      const now = new Date().toISOString();
+      const insertStmt = db.prepare(`
+        INSERT OR IGNORE INTO company_sources (id, name, website_url, careers_url, ats_provider, ats_slug, status, crawl_frequency_hours, jobs_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 6, 0, ?, ?)
+      `);
+
+      for (const comp of INITIAL_COMPANIES) {
+        insertStmt.run(comp.id, comp.name, comp.website_url, comp.careers_url, comp.ats_provider, comp.ats_slug, now, now);
+      }
     },
   },
 ];

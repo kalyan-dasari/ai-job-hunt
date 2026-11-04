@@ -27,3 +27,33 @@ export interface SourceConnector {
   setupInstructions: string;
   usage?: ProviderUsageInfo;
 }
+
+export type CompanySourceStatus = 'active' | 'limited' | 'blocked' | 'disabled' | 'error';
+
+export interface CompanySource {
+  id: string;
+  name: string;
+  websiteUrl: string;
+  careersUrl: string;
+  atsProvider?: string; // 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'recruitee' | 'personio' | 'breezy' | 'teamtailor' | 'rippling' | 'workday' | 'generic'
+  atsSlug?: string;
+  status: CompanySourceStatus;
+  lastCrawlAt?: string;
+  lastSuccessfulCrawlAt?: string;
+  lastError?: string;
+  crawlFrequencyHours: number;
+  jobsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DiscoveryAttempt {
+  id: string;
+  companyId?: string;
+  url: string;
+  status: 'success' | 'failed' | 'skipped';
+  httpStatus?: number;
+  errorMessage?: string;
+  jobsFound: number;
+  attemptedAt: string;
+}

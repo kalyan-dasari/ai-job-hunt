@@ -2,14 +2,27 @@ export type WorkArrangement = 'Remote' | 'Hybrid' | 'On-site';
 export type EmploymentType = 'Full-time' | 'Internship' | 'Part-time' | 'Contract';
 export type ExperienceLevel = 'Intern' | 'Entry' | 'Mid' | 'Senior' | 'Lead';
 export type JobSource =
+  | 'Greenhouse'
+  | 'Lever'
+  | 'Ashby'
+  | 'Workable'
+  | 'SmartRecruiters'
+  | 'Recruitee'
+  | 'Personio'
+  | 'Breezy HR'
+  | 'Teamtailor'
+  | 'Rippling'
+  | 'Workday'
+  | 'JSON-LD'
+  | 'RSS Feed'
+  | 'Career Page'
+  | 'Startup Feed'
   | 'JSearch'
   | 'Adzuna'
-  | 'Career Page'
   | 'Naukri'
   | 'LinkedIn'
   | 'Internshala'
   | 'Foundit'
-  | 'Startup Feed'
   | 'Manual Import';
 
 export type VerificationStatus = 'Verified' | 'Needs Review' | 'High Risk' | 'Unknown';
@@ -79,7 +92,9 @@ export interface Job {
   title: string;
   company: string;
   companyLogo?: string;
+  companyWebsite?: string;
   location: string;
+  country?: string;
   workArrangement: WorkArrangement;
   employmentType: EmploymentType;
   experienceLevel: ExperienceLevel;
@@ -98,9 +113,11 @@ export interface Job {
   requiredSkills: string[];
   preferredSkills: string[];
   source: JobSource;
+  sourceType?: 'ATS' | 'CareerPage' | 'JSON-LD' | 'RSS' | 'Aggregator' | 'Manual';
   sourceJobId: string;
   originalUrl: string;
   canonicalUrl: string;
+  applicationUrl?: string;
   datePosted: string;
   lastChecked: string;
   isStartup: boolean;
