@@ -1864,3 +1864,179 @@ export const queryCacheRepository = {
     db.prepare('DELETE FROM query_cache WHERE expires_at <= ?').run(now);
   },
 };
+
+// 13. COMPANY SOURCES REPOSITORY (Web-first public ATS & Career Discovery)
+export const companySourcesRepository = {
+  getAll(): CompanySource[] {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM company_sources ORDER BY name ASC').all() as any[];
+    return rows.map((r) => this.mapRow(r));
+  },
+
+  getById(id: string): CompanySource | null {
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM company_sources WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapRow(row);
+  },
+
+  getByWebsite(websiteUrl: string): CompanySource | null {
+    const db = getDatabase();
+    const cleanUrl = websiteUrl.trim().toLowerCase().replace(/\/$/, '');
+    const row = db.prepare('SELECT * FROM company_sources WHERE website_url LIKE ? OR careers_url LIKE ?').get(`%${cleanUrl}%`, `%${cleanUrl}%`) as any;
+    if (!row) return null;
+    return this.mapRow(row);
+  },
+
+  getActiveDueForCrawl(cooldownHours: number = 6): CompanySource[] {
+    const db = getDatabase();
+    const cutoff = new Date(Date.now() - cooldownHours * 60 * 60 * 1000).toISOString();
+    const rows = db.prepare(`
+      SELECT * FROM company_sources
+      WHERE status = 'active'
+        AND (last_crawl_at IS NULL OR last_crawl_at <= ?)
+      ORDER BY last_crawl_at ASC
+    `).all(cutoff) as any[];
+    return rows.map((r) => this.mapRow(r));
+  },
+
+  create(source: Partial<CompanySource>): CompanySource {
+    const db = getDatabase();
+    const id = source.id || `comp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO company_sources (
+        id, name, website_url, careers_url, ats_provider, ats_slug,
+        status, crawl_frequency_hours, jobs_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      source.name || 'Company',
+      source.websiteUrl || '',
+      source.careersUrl || source.websiteUrl || '',
+      source.atsProvider || null,
+      source.atsSlug || null,
+      source.status || 'active',
+      source.crawlFrequencyHours || 6,
+      source.jobsCount || 0,
+      now,
+      now
+    );
+    return this.getById(id)!;
+  },
+
+  update(id: string, updates: Partial<CompanySource>): CompanySource | null {
+    const db = getDatabase();
+    const current = this.getById(id);
+    if (!current) return null;
+
+    const updated = { ...current, ...updates, updatedAt: new Date().toISOString() };
+    db.prepare(`
+      UPDATE company_sources
+      SET name = ?, website_url = ?, careers_url = ?, ats_provider = ?, ats_slug = ?,
+          status = ?, last_crawl_at = ?, last_successful_crawl_at = ?, last_error = ?,
+          crawl_frequency_hours = ?, jobs_count = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      updated.name,
+      updated.websiteUrl,
+      updated.careersUrl,
+      updated.atsProvider || null,
+      updated.atsSlug || null,
+      updated.status,
+      updated.lastCrawlAt || null,
+      updated.lastSuccessfulCrawlAt || null,
+      updated.lastError || null,
+      updated.crawlFrequencyHours,
+      updated.jobsCount,
+      updated.updatedAt,
+      id
+    );
+    return this.getById(id);
+  },
+
+  delete(id: string): boolean {
+    const db = getDatabase();
+    const res = db.prepare('DELETE FROM company_sources WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  },
+
+  recordCrawlResult(id: string, jobsFound: number, error?: string): void {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    if (error) {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?, last_error = ?, updated_at = ?
+        WHERE id = ?
+      `).run(now, error, now, id);
+    } else {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?, last_successful_crawl_at = ?, jobs_count = ?, last_error = NULL, status = 'active', updated_at = ?
+        WHERE id = ?
+      `).run(now, now, jobsFound, now, id);
+    }
+  },
+
+  mapRow(r: any): CompanySource {
+    return {
+      id: r.id,
+      name: r.name,
+      websiteUrl: r.website_url,
+      careersUrl: r.careers_url,
+      atsProvider: r.ats_provider || undefined,
+      atsSlug: r.ats_slug || undefined,
+      status: r.status,
+      lastCrawlAt: r.last_crawl_at || undefined,
+      lastSuccessfulCrawlAt: r.last_successful_crawl_at || undefined,
+      lastError: r.last_error || undefined,
+      crawlFrequencyHours: Number(r.crawl_frequency_hours || 6),
+      jobsCount: Number(r.jobs_count || 0),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  },
+};
+
+// 14. DISCOVERY ATTEMPTS REPOSITORY
+export const discoveryAttemptsRepository = {
+  record(attempt: Omit<DiscoveryAttempt, 'id' | 'attemptedAt'>): DiscoveryAttempt {
+    const db = getDatabase();
+    const id = `att-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO discovery_attempts (id, company_id, url, status, http_status, error_message, jobs_found, attempted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      attempt.companyId || null,
+      attempt.url,
+      attempt.status,
+      attempt.httpStatus || null,
+      attempt.errorMessage || null,
+      attempt.jobsFound || 0,
+      now
+    );
+    return {
+      id,
+      ...attempt,
+      attemptedAt: now,
+    };
+  },
+
+  getRecent(limit: number = 30): DiscoveryAttempt[] {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM discovery_attempts ORDER BY attempted_at DESC LIMIT ?').all(limit) as any[];
+    return rows.map((r) => ({
+      id: r.id,
+      companyId: r.company_id || undefined,
+      url: r.url,
+      status: r.status,
+      httpStatus: r.http_status ? Number(r.http_status) : undefined,
+      errorMessage: r.error_message || undefined,
+      jobsFound: Number(r.jobs_found || 0),
+      attemptedAt: r.attempted_at,
+    }));
+  },
+};
