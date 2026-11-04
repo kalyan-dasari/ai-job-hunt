@@ -85,7 +85,13 @@ export class JobDeduplicator {
 
       // 3. Composite Similarity Check: Same Company + High Title Similarity
       const existingCompSlug = normalizeCompanySlug(existing.company);
-      if (incomingCompSlug && existingCompSlug && incomingCompSlug === existingCompSlug) {
+      const isSameCompany =
+        incomingCompSlug === existingCompSlug ||
+        (incomingCompSlug.length >= 4 &&
+          existingCompSlug.length >= 4 &&
+          (incomingCompSlug.startsWith(existingCompSlug) || existingCompSlug.startsWith(incomingCompSlug)));
+
+      if (incomingCompSlug && existingCompSlug && isSameCompany) {
         // Guard against merging genuinely different roles:
         // A) Different engineering disciplines must NEVER merge
         const isFrontendA = incoming.title.toLowerCase().includes('frontend') || incoming.title.toLowerCase().includes('front-end') || incoming.title.toLowerCase().includes('ui');
