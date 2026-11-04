@@ -361,7 +361,7 @@ export const api = {
     return res.json();
   },
 
-  async getAtsAdapters(): Promise<Array<{ name: string; displayName: string; sampleUrlPattern: string }>> {
+  async getAtsAdapters(): Promise<Array<{ provider: string; displayName: string; sampleUrlPattern: string }>> {
     const res = await fetch('/api/ats/adapters');
     if (!res.ok) throw new Error('Failed to fetch ATS adapters');
     return res.json();

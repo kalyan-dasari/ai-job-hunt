@@ -1305,7 +1305,7 @@ app.post('/api/companies/detect', async (req: Request, res: Response) => {
 app.get('/api/ats/adapters', (_req: Request, res: Response) => {
   try {
     const adapters = getAllAtsAdapters().map((a) => ({
-      name: a.name,
+      provider: a.provider,
       displayName: a.displayName,
       sampleUrlPattern: a.buildPublicUrl('{slug}'),
     }));
