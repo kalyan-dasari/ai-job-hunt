@@ -143,8 +143,9 @@ async function main() {
   const totalJobsRow = db.prepare('SELECT COUNT(*) as count FROM jobs').get() as any;
   const jobsWithAppUrlRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE application_url IS NOT NULL AND application_url != ''").get() as any;
   const jobsWithOriginalUrlRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE original_url IS NOT NULL AND original_url != ''").get() as any;
-  const fresherJobsRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE is_fresher_friendly = 1").get() as any;
-  const remoteJobsRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE is_remote = 1").get() as any;
+  const fresherJobsRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE experience_level IN ('Intern', 'Entry') OR min_exp_years <= 1").get() as any;
+  const remoteJobsRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE work_arrangement = 'Remote' OR location LIKE '%Remote%'").get() as any;
+  const indiaJobsRow = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE country = 'India' OR location LIKE '%India%' OR location LIKE '%Bangalore%' OR location LIKE '%Bengaluru%' OR location LIKE '%Hyderabad%' OR location LIKE '%Mumbai%' OR location LIKE '%Pune%' OR location LIKE '%Delhi%' OR location LIKE '%Noida%' OR location LIKE '%Gurgaon%'").get() as any;
   const totalSourceRefsRow = db.prepare('SELECT COUNT(*) as count FROM job_sources').get() as any;
 
   console.log('Direct SQLite Metrics:');
@@ -155,23 +156,33 @@ async function main() {
   console.log(`  5. Total Job Source References:         ${totalSourceRefsRow.count}`);
   console.log(`  6. Jobs with Valid Application URLs:    ${jobsWithAppUrlRow.count}`);
   console.log(`  7. Jobs with Valid Original URLs:       ${jobsWithOriginalUrlRow.count}`);
-  console.log(`  8. Jobs Classified as Fresher-Friendly: ${fresherJobsRow.count}`);
-  console.log(`  9. Jobs Classified as Remote:           ${remoteJobsRow.count}`);
+  console.log(`  8. Jobs Marked India-Relevant:          ${indiaJobsRow.count}`);
+  console.log(`  9. Jobs Classified as Fresher-Friendly: ${fresherJobsRow.count}`);
+  console.log(` 10. Jobs Classified as Remote:           ${remoteJobsRow.count}`);
 
   // Fetch sample persisted real jobs
   const sampleJobs = db.prepare(`
-    SELECT id, title, company, location, application_url, original_url, match_score, is_fresher_friendly, is_remote
+    SELECT id, title, company, location, experience_level, min_exp_years, work_arrangement, application_url, original_url, match_result
     FROM jobs
     LIMIT 5
   `).all() as any[];
 
   console.log('\nSample Persisted Real Jobs from SQLite:');
   sampleJobs.forEach((j, idx) => {
+    let score = 'N/A';
+    try {
+      const parsed = JSON.parse(j.match_result);
+      if (parsed && parsed.overallScore != null) score = `${parsed.overallScore}%`;
+    } catch {}
+
+    const isFresher = ['Intern', 'Entry'].includes(j.experience_level) || (j.min_exp_years != null && j.min_exp_years <= 1);
+    const isRemote = j.work_arrangement === 'Remote' || (j.location && j.location.toLowerCase().includes('remote'));
+
     console.log(`  [Job ${idx + 1}] "${j.title}"`);
-    console.log(`    Company:  ${j.company}`);
-    console.log(`    Location: ${j.location}`);
-    console.log(`    App URL:  ${j.application_url || j.original_url}`);
-    console.log(`    Score:    ${j.match_score} | Fresher: ${j.is_fresher_friendly ? 'Yes' : 'No'} | Remote: ${j.is_remote ? 'Yes' : 'No'}`);
+    console.log(`    Company:     ${j.company}`);
+    console.log(`    Location:    ${j.location}`);
+    console.log(`    App URL:     ${j.application_url || j.original_url}`);
+    console.log(`    Match Score: ${score} | Fresher: ${isFresher ? 'Yes' : 'No'} | Arrangement: ${j.work_arrangement}`);
   });
 
   console.log('\n========================================================================');
@@ -179,14 +190,14 @@ async function main() {
   console.log('========================================================================\n');
 
   const allJobs = jobsRepository.getAllJobs();
-  const latestJobs = [...allJobs].sort((a, b) => new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime());
+  const latestJobs = [...allJobs].sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
   const recommendedJobs = [...allJobs].sort((a, b) => (b.matchResult?.overallScore || 0) - (a.matchResult?.overallScore || 0));
   const startupJobs = allJobs.filter((j) => {
     const compLower = j.company.toLowerCase();
-    return ['inmobi', 'cred', 'mercari', 'decisions', 'tibber', 'sentry'].some((s) => compLower.includes(s));
+    return j.isStartup || ['inmobi', 'cred', 'mercari', 'decisions', 'tibber', 'sentry'].some((s) => compLower.includes(s));
   });
-  const fresherJobs = allJobs.filter((j) => j.isFresherFriendly);
-  const remoteJobs = allJobs.filter((j) => j.isRemote);
+  const fresherJobs = allJobs.filter((j) => ['Intern', 'Entry'].includes(j.experienceLevel) || (j.minExpYears != null && j.minExpYears <= 1) || j.matchResult?.isFresherEligible);
+  const remoteJobs = allJobs.filter((j) => j.workArrangement === 'Remote' || j.location.toLowerCase().includes('remote'));
 
   console.log(`  - Latest Jobs Tab:       ${latestJobs.length} available`);
   console.log(`  - Recommended Tab:       ${recommendedJobs.length} available (Top score: ${recommendedJobs[0]?.matchResult?.overallScore || 0}%)`);
