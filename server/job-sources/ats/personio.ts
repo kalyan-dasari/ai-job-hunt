@@ -108,3 +108,4 @@ export class PersonioAtsAdapter implements AtsAdapter {
     }
   }
 }
+

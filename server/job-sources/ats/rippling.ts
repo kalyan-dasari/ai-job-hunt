@@ -93,3 +93,4 @@ export class RipplingAtsAdapter implements AtsAdapter {
     }
   }
 }
+

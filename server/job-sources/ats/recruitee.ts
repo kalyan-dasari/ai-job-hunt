@@ -91,3 +91,4 @@ export class RecruiteeAtsAdapter implements AtsAdapter {
     }
   }
 }
+
