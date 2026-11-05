@@ -200,6 +200,8 @@ npm start
 | `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
 | `npm run test:discovery` | Runs the 17-test Phase 3 real discovery & deduplication engine suite |
 | `npm run test:dossier` | Runs the 8-test Dossier architecture discovery & quota suite |
+| `npm run test:public` | Runs the 10-test Web-First public discovery & ATS suite (100% pass) |
+| `npm run test:live` | Runs the live integration test across real public ATS endpoints |
 
 ---
 
