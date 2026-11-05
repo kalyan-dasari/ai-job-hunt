@@ -152,3 +152,4 @@ export class AtsDetector {
 }
 
 export const atsDetector = new AtsDetector();
+
