@@ -72,7 +72,7 @@ export class WorkdayAtsAdapter implements AtsAdapter {
 
   async fetchJobs(slug: string, companyName: string, options: AtsFetchOptions = {}): Promise<FetchResult> {
     try {
-      const { tenant, careerSite } = this.parseSlug(slug);
+      const { tenant, careerSite, host } = this.parseSlug(slug);
       const url = this.buildPublicUrl(slug);
       const limit = options.limit || 20;
 
@@ -105,8 +105,8 @@ export class WorkdayAtsAdapter implements AtsAdapter {
         const isRemote = loc.toLowerCase().includes('remote') || title.toLowerCase().includes('remote');
         const extPath = item.externalPath || '';
         const jobUrl = extPath
-          ? `https://${tenant}.wd1.myworkdayjobs.com/en-US/${careerSite}${extPath}`
-          : `https://${tenant}.wd1.myworkdayjobs.com/${careerSite}`;
+          ? `https://${host}/en-US/${careerSite}${extPath}`
+          : `https://${host}/${careerSite}`;
 
         rawJobs.push({
           externalId: extPath || item.bulletFields?.[0] || undefined,
