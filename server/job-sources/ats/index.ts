@@ -51,3 +51,4 @@ export function getAtsAdapter(provider: string): AtsAdapter | undefined {
 export function getAllAtsAdapters(): AtsAdapter[] {
   return Array.from(adapters.values());
 }
+

@@ -6,8 +6,10 @@ JobPilot AI is a full-stack, production-ready web application designed to help j
 
 ## 🚀 Key Highlights & Capabilities
 
-- **Dossier-Style Job Discovery Architecture**: Simple, robust 3-channel discovery model: **JSearch API** (RapidAPI) for primary aggregated searches, **Adzuna API** (official India endpoint) for regional analytics, and **Direct Corporate Career Boards** (Greenhouse, Lever, Ashby, Jobicy) for verified ATS listings.
-- **Central JobDiscoveryAgent**: Automatically parses the candidate's active profile, extracts preferred roles and skills, creates 2-3 focused India search queries, queries active channels, deduplicates across sources, and computes Dossier match scores.
+- **Web-First Job Discovery Engine (Dossier-Inspired, ₹0 Cost)**: Multi-source job discovery engine finding publicly accessible job vacancies across official company career boards, 11 public ATS platforms, and schema.org JobPosting feeds. **Zero paid API requirement and ₹0 operating cost**.
+- **11 Public ATS Adapters**: Native, key-less public integrations for **Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio, Breezy HR, Teamtailor, Rippling, and Workday**.
+- **Indian Tech Seed Discovery System**: Pre-seeded with 16 top Indian technology companies (Razorpay, Postman, CRED, Hasura, Urban Company, BrowserStack, MoEngage, Groww, Zepto, CleverTap, Shiprocket, Yellow.ai, HackerEarth, InMobi, UrbanPiper, Zerodha) with auto-crawling, ATS auto-detection, and manual company addition.
+- **Central JobDiscoveryAgent**: Automatically parses the candidate's active profile, extracts preferred roles and skills, creates focused India queries, crawls due company career boards & public ATS feeds, filters by India-first relevancy, deduplicates across channels, and computes 6D match scores.
 - **Monthly API Quota Guards & 24-Hour Query Caching**: Durably persisted in SQLite (`api_usage` and `query_cache` tables). Tracks monthly limits (200/month JSearch, 250/month Adzuna) and suppresses redundant external requests with 24-hour TTL caching.
 - **Intelligent Dossier Match Evaluation**: Comprehensive 6-dimensional scoring enhanced with:
   - **Fresher Eligibility Badge**: Instantly identifies entry-level/fresher roles (`0 yrs experience`).
@@ -198,6 +200,8 @@ npm start
 | `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
 | `npm run test:discovery` | Runs the 17-test Phase 3 real discovery & deduplication engine suite |
 | `npm run test:dossier` | Runs the 8-test Dossier architecture discovery & quota suite |
+| `npm run test:public` | Runs the 10-test Web-First public discovery & ATS suite (100% pass) |
+| `npm run test:live` | Runs the live integration test across real public ATS endpoints |
 
 ---
 

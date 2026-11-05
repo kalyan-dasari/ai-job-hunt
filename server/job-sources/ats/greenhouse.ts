@@ -93,3 +93,4 @@ export class GreenhouseAtsAdapter implements AtsAdapter {
     }
   }
 }
+

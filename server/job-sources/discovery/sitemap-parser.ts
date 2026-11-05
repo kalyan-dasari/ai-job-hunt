@@ -40,3 +40,4 @@ export class SitemapParser {
 }
 
 export const sitemapParser = new SitemapParser();
+

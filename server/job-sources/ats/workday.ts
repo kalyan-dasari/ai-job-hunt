@@ -126,3 +126,4 @@ export class WorkdayAtsAdapter implements AtsAdapter {
     }
   }
 }
+

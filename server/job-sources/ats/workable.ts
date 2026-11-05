@@ -92,3 +92,4 @@ export class WorkableAtsAdapter implements AtsAdapter {
     }
   }
 }
+
