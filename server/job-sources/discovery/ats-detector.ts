@@ -136,8 +136,8 @@ export class AtsDetector {
     }
 
     // 11. Workday
-    // Patterns: {tenant}.wd1.myworkdayjobs.com/{careerSite}
-    const workdayMatch = combined.match(/([a-zA-Z0-9_-]+)\.(?:wd\d+|myworkdayjobs)\.com\/(?:[a-zA-Z_-]+\/)?([a-zA-Z0-9_-]+)/i);
+    // Patterns: {tenant}.wd5.myworkdayjobs.com/{careerSite} or {tenant}.myworkdayjobs.com/{careerSite}
+    const workdayMatch = combined.match(/([a-zA-Z0-9_-]+(?:\.wd\d+)?)\.myworkdayjobs\.com\/(?:[a-zA-Z_-]+\/)?([a-zA-Z0-9_-]+)/i);
     if (workdayMatch && workdayMatch[1] && workdayMatch[2]) {
       return {
         provider: 'workday',

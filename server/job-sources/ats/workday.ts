@@ -5,17 +5,34 @@ export class WorkdayAtsAdapter implements AtsAdapter {
   provider = 'workday';
   displayName = 'Workday Career Site';
 
-  private parseSlug(slug: string): { tenant: string; careerSite: string } {
+  private parseSlug(slug: string): { tenant: string; careerSite: string; host: string } {
     const parts = slug.split('/');
     if (parts.length >= 2) {
-      return { tenant: parts[0], careerSite: parts[1] };
+      const tenantPart = parts[0];
+      const careerSite = parts[1];
+      if (tenantPart.includes('.wd')) {
+        return {
+          tenant: tenantPart.split('.')[0],
+          careerSite,
+          host: `${tenantPart}.myworkdayjobs.com`,
+        };
+      }
+      return {
+        tenant: tenantPart,
+        careerSite,
+        host: `${tenantPart}.wd5.myworkdayjobs.com`,
+      };
     }
-    return { tenant: slug, careerSite: slug };
+    return {
+      tenant: slug,
+      careerSite: slug,
+      host: `${slug}.wd5.myworkdayjobs.com`,
+    };
   }
 
   buildPublicUrl(slug: string): string {
-    const { tenant, careerSite } = this.parseSlug(slug);
-    return `https://${tenant}.wd1.myworkdayjobs.com/wday/cxs/${tenant}/${careerSite}/jobs`;
+    const { tenant, careerSite, host } = this.parseSlug(slug);
+    return `https://${host}/wday/cxs/${tenant}/${careerSite}/jobs`;
   }
 
   async testConnection(slug: string): Promise<{ success: boolean; message: string; details?: any }> {
@@ -55,7 +72,7 @@ export class WorkdayAtsAdapter implements AtsAdapter {
 
   async fetchJobs(slug: string, companyName: string, options: AtsFetchOptions = {}): Promise<FetchResult> {
     try {
-      const { tenant, careerSite } = this.parseSlug(slug);
+      const { tenant, careerSite, host } = this.parseSlug(slug);
       const url = this.buildPublicUrl(slug);
       const limit = options.limit || 20;
 
@@ -88,8 +105,8 @@ export class WorkdayAtsAdapter implements AtsAdapter {
         const isRemote = loc.toLowerCase().includes('remote') || title.toLowerCase().includes('remote');
         const extPath = item.externalPath || '';
         const jobUrl = extPath
-          ? `https://${tenant}.wd1.myworkdayjobs.com/en-US/${careerSite}${extPath}`
-          : `https://${tenant}.wd1.myworkdayjobs.com/${careerSite}`;
+          ? `https://${host}/en-US/${careerSite}${extPath}`
+          : `https://${host}/${careerSite}`;
 
         rawJobs.push({
           externalId: extPath || item.bulletFields?.[0] || undefined,
