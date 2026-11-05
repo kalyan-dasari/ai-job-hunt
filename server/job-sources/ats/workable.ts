@@ -52,9 +52,11 @@ export class WorkableAtsAdapter implements AtsAdapter {
       const rawJobs: RawSourceJob[] = [];
 
       for (const item of items) {
-        const locParts = [item.location?.city, item.location?.region, item.location?.country].filter(Boolean);
-        const loc = locParts.length > 0 ? locParts.join(', ') : 'Not Specified';
-        const isRemote = Boolean(item.location?.telecommuting) || loc.toLowerCase().includes('remote') || (item.title || '').toLowerCase().includes('remote');
+        const locParts = [item.city, item.state, item.country].filter(Boolean);
+        const loc = locParts.length > 0
+          ? locParts.join(', ')
+          : (Array.isArray(item.locations) && item.locations[0]?.city ? item.locations[0].city : 'Not Specified');
+        const isRemote = Boolean(item.telecommuting) || loc.toLowerCase().includes('remote') || (item.title || '').toLowerCase().includes('remote');
         const desc = item.description ? stripHtml(item.description) : '';
 
         rawJobs.push({
@@ -65,8 +67,9 @@ export class WorkableAtsAdapter implements AtsAdapter {
           workArrangement: isRemote ? 'Remote' : 'Hybrid',
           employmentType: item.employment_type || 'Full-time',
           description: desc,
-          url: item.url || `https://apply.workable.com/${slug}/j/${item.shortcode}/`,
+          url: item.url || `https://apply.workable.com/j/${item.shortcode}`,
           canonicalUrl: item.url,
+          applicationUrl: item.application_url || item.url,
           postedDate: item.published_on || item.created_at || new Date().toISOString(),
           sourceName: 'Workable',
           rawMetadata: {
