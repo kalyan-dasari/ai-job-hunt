@@ -6,7 +6,7 @@ export class RipplingAtsAdapter implements AtsAdapter {
   displayName = 'Rippling Job Board';
 
   buildPublicUrl(slug: string): string {
-    return `https://api.rippling.com/platform/api/ats/v1/board/${slug}/jobs`;
+    return `https://ats.rippling.com/${slug}/jobs`;
   }
 
   async testConnection(slug: string): Promise<{ success: boolean; message: string; details?: any }> {
@@ -14,8 +14,17 @@ export class RipplingAtsAdapter implements AtsAdapter {
       const url = this.buildPublicUrl(slug);
       const res = await safeFetchWithRetry(url, {}, 1, 6000);
       if (res.ok) {
-        const json = await res.json();
-        const count = Array.isArray(json?.jobs) ? json.jobs.length : (Array.isArray(json) ? json.length : 0);
+        const html = await res.text();
+        const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json">([\s\S]*?)<\/script>/i);
+        let count = 0;
+        if (nextDataMatch) {
+          try {
+            const data = JSON.parse(nextDataMatch[1]);
+            const queries = data.props?.pageProps?.dehydratedState?.queries || [];
+            const jobQuery = queries.find((q: any) => q.queryKey?.[2] === 'job-posts');
+            count = jobQuery?.state?.data?.totalItems || jobQuery?.state?.data?.items?.length || 0;
+          } catch {}
+        }
         return {
           success: true,
           message: `Connected to Rippling board '${slug}' (${count} jobs found).`,
@@ -43,21 +52,43 @@ export class RipplingAtsAdapter implements AtsAdapter {
         return {
           success: false,
           jobs: [],
-          error: `Rippling API returned HTTP ${res.status}`,
+          error: `Rippling board returned HTTP ${res.status}`,
         };
       }
 
-      const json = await res.json();
-      const items = Array.isArray(json?.jobs) ? json.jobs : (Array.isArray(json) ? json : []);
       const rawJobs: RawSourceJob[] = [];
+      const text = await res.text();
+
+      // Check for Next.js SSR dehydrated state in HTML
+      const nextDataMatch = text.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json">([\s\S]*?)<\/script>/i);
+      let items: any[] = [];
+
+      if (nextDataMatch) {
+        try {
+          const data = JSON.parse(nextDataMatch[1]);
+          const queries = data.props?.pageProps?.dehydratedState?.queries || [];
+          const jobQuery = queries.find((q: any) => q.queryKey?.[2] === 'job-posts');
+          items = jobQuery?.state?.data?.items || [];
+        } catch {}
+      } else {
+        // Fallback: direct JSON response if API was targeted
+        try {
+          const json = JSON.parse(text);
+          items = Array.isArray(json?.jobs) ? json.jobs : (Array.isArray(json) ? json : []);
+        } catch {}
+      }
 
       for (const item of items) {
         const title = item.name || item.title || 'Software Engineer';
         const locName = Array.isArray(item.locations) && item.locations[0]?.name
           ? item.locations.map((l: any) => l.name).join(', ')
           : (item.location || 'Not Specified');
-        const isRemote = item.workplaceType === 'REMOTE' || locName.toLowerCase().includes('remote') || title.toLowerCase().includes('remote');
+        const isRemote = (Array.isArray(item.locations) && item.locations[0]?.workplaceType === 'REMOTE') ||
+          item.workplaceType === 'REMOTE' ||
+          locName.toLowerCase().includes('remote') ||
+          title.toLowerCase().includes('remote');
         const desc = item.description ? stripHtml(item.description) : `${title} at ${companyName}.`;
+        const jobUrl = item.url || `https://ats.rippling.com/${slug}/jobs/${item.id}`;
 
         rawJobs.push({
           externalId: item.id ? String(item.id) : undefined,
@@ -67,8 +98,9 @@ export class RipplingAtsAdapter implements AtsAdapter {
           workArrangement: isRemote ? 'Remote' : 'Hybrid',
           employmentType: item.employmentType || 'Full-time',
           description: desc,
-          url: item.url || `https://ats.rippling.com/${slug}/jobs/${item.id}`,
-          canonicalUrl: item.url,
+          url: jobUrl,
+          canonicalUrl: jobUrl,
+          applicationUrl: jobUrl,
           postedDate: item.updatedAt || item.createdAt || new Date().toISOString(),
           sourceName: 'Rippling',
           rawMetadata: {
