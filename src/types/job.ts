@@ -1,6 +1,13 @@
 export type WorkArrangement = 'Remote' | 'Hybrid' | 'On-site';
 export type EmploymentType = 'Full-time' | 'Internship' | 'Part-time' | 'Contract';
-export type ExperienceLevel = 'Intern' | 'Entry' | 'Mid' | 'Senior' | 'Lead';
+export type ExperienceLevel = 'Intern' | 'Entry' | 'Mid' | 'Senior' | 'Lead' | 'Unclear';
+export type FresherStatus = 'Fresher' | 'Experienced' | 'Unclear';
+export type LocationCategory =
+  | 'India city'
+  | 'India remote'
+  | 'International remote explicitly open to India'
+  | 'International location'
+  | 'Unknown';
 export type JobSource =
   | 'Greenhouse'
   | 'Lever'
@@ -71,8 +78,10 @@ export interface MatchResult {
   reasoningSummary?: string;
   experienceExplanation?: string;
   isFresherEligible?: boolean;
+  fresherStatus?: FresherStatus;
   fresherExplanation?: string;
   locationCompatibilityNote?: string;
+  locationCategory?: LocationCategory;
   riskAssessment?: string;
   mandatoryRequirementsMet?: boolean;
 }
@@ -129,6 +138,9 @@ export interface Job {
   isDuplicate?: boolean;
   duplicateOfId?: string;
   freshnessStatus?: FreshnessStatus;
+  fresherStatus?: FresherStatus;
+  locationCategory?: LocationCategory;
+  targetRoleCategory?: string;
   expiryDate?: string;
   lastVerifiedAt?: string;
   isDemo?: boolean;
