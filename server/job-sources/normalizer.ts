@@ -70,7 +70,7 @@ export const INDIAN_TECH_CITIES = [
   'ahmedabad', 'chandigarh', 'kochi', 'coimbatore', 'jaipur', 'indore',
   'thiruvananthapuram', 'trivandrum', 'mysore', 'mysuru', 'nagpur', 'bhubaneswar',
   'secunderabad', 'telangana', 'karnataka', 'tamil nadu', 'maharashtra', 'haryana',
-  'uttar pradesh', 'kerala', 'west bengal', 'gujarat', 'india', 'in'
+  'uttar pradesh', 'kerala', 'west bengal', 'gujarat', 'india'
 ];
 
 export interface LocationClassification {
@@ -89,6 +89,25 @@ export function classifyLocation(
   const loc = (location || '').toLowerCase().trim();
   const desc = (description || '').slice(0, 1000).toLowerCase();
   const cCode = (countryCode || '').toLowerCase().trim();
+
+  // Check for foreign country signals first to prevent accidental substring false-positives
+  const foreignSignals = [
+    'united kingdom', 'london', 'united states', 'usa', 'us only', 'berlin', 'germany',
+    'paris', 'france', 'tokyo', 'japan', 'singapore', 'sydney', 'australia', 'canada',
+    'amsterdam', 'netherlands', 'austria', 'vienna', 'dublin', 'ireland'
+  ];
+  const hasForeignSignal = foreignSignals.some((f) => loc.includes(f));
+  const hasIndiaExplicit = loc.includes('india') || INDIAN_TECH_CITIES.some((city) => loc.includes(city));
+
+  if (hasForeignSignal && !hasIndiaExplicit) {
+    return {
+      category: 'International location',
+      eligible: false,
+      isRemote: false,
+      matchedLocation: location || 'International',
+      reason: `International location (${location}) outside domestic India hiring scope.`,
+    };
+  }
 
   // 1. Check for explicit India city/state match
   for (const city of INDIAN_TECH_CITIES) {
@@ -114,7 +133,7 @@ export function classifyLocation(
   }
 
   // 2. Explicit country code check
-  if (cCode === 'in' || cCode === 'ind' || cCode === 'india') {
+  if (cCode === 'in' || cCode === 'ind' || cCode === 'india' || /\b(?:in|ind|india)\b/i.test(loc)) {
     const isRemote = loc.includes('remote') || loc.includes('wfh');
     return {
       category: isRemote ? 'India remote' : 'India city',
