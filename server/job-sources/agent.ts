@@ -126,7 +126,7 @@ export class JobDiscoveryAgent {
         if (options.limitCompanies && options.limitCompanies > 0) {
           targetCompanies = targetCompanies.slice(0, options.limitCompanies);
         } else {
-          targetCompanies = targetCompanies.slice(0, 8);
+          targetCompanies = targetCompanies.slice(0, 30);
         }
       }
 
@@ -193,15 +193,35 @@ export class JobDiscoveryAgent {
         }
       }
 
-      // Ingestion Pipeline: Filter -> Deduplicate -> Store -> Match
+      // Ingestion Pipeline: Strict India Relevancy -> Deduplicate -> Store -> Match
+      const exclusions: Array<{
+        title: string;
+        company: string;
+        location: string;
+        source: string;
+        reason: string;
+      }> = [];
+
+      let indiaRelevantCount = 0;
+      let fresherFriendlyCount = 0;
+      let experiencedCount = 0;
+      let unclearCount = 0;
+
       for (const raw of rawFetchedJobs) {
-        // 1. India-first Filtering
+        // 1. Strict India Relevance Check
         const indiaCheck = isIndiaEligibleJob(raw.location, raw.description, raw.country);
         if (!indiaCheck.eligible) {
-          // Skip roles restricted to other countries
+          exclusions.push({
+            title: raw.title,
+            company: raw.company,
+            location: raw.location || 'Unknown',
+            source: raw.sourceName,
+            reason: indiaCheck.reason || 'Non-India location or unconfirmed remote',
+          });
           continue;
         }
 
+        indiaRelevantCount++;
         const normalized = normalizeRawJob(raw);
 
         // 2. Cross-Source Deduplication Check
@@ -229,6 +249,13 @@ export class JobDiscoveryAgent {
 
         if (isDup && matchedJob) {
           run.duplicatesFiltered++;
+          exclusions.push({
+            title: normalized.title,
+            company: normalized.company,
+            location: normalized.location,
+            source: normalized.source,
+            reason: `Duplicate of existing listing (Job ID: ${matchedJob.id})`,
+          });
           // Provenance cross-reference link
           jobSourcesRepository.addSourceReference({
             id: `jsrc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -244,6 +271,12 @@ export class JobDiscoveryAgent {
           normalized.matchResult = calculateDossierMatch(candidate, normalized);
           normalized.freshnessStatus = 'Newly Discovered';
           normalized.lastVerifiedAt = new Date().toISOString();
+          normalized.fresherStatus = normalized.matchResult?.fresherStatus || normalized.fresherStatus;
+          normalized.locationCategory = normalized.matchResult?.locationCategory || normalized.locationCategory;
+
+          if (normalized.fresherStatus === 'Fresher') fresherFriendlyCount++;
+          else if (normalized.fresherStatus === 'Experienced') experiencedCount++;
+          else unclearCount++;
 
           // 4. Persistence in SQLite
           const saved = jobsRepository.saveJob(normalized);
@@ -262,6 +295,20 @@ export class JobDiscoveryAgent {
           run.jobsAdded++;
         }
       }
+
+      run.details = {
+        exclusions: exclusions.slice(0, 50),
+        stats: {
+          totalDiscovered: rawFetchedJobs.length,
+          indiaRelevant: indiaRelevantCount,
+          fresherFriendly: fresherFriendlyCount,
+          experienced: experiencedCount,
+          unclear: unclearCount,
+          duplicatesMerged: run.duplicatesFiltered,
+          jobsAdded: run.jobsAdded,
+          failedSources: run.errors.length,
+        },
+      };
 
       run.status = 'completed';
       run.completedAt = new Date().toISOString();
