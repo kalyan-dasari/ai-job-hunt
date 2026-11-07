@@ -464,7 +464,7 @@ const MIGRATIONS = [
         // Bengaluru Startups & High-Growth Tech
         { id: 'comp-apna', name: 'Apna', website_url: 'https://apna.co', careers_url: 'https://apply.workable.com/apna/', ats_provider: 'workable', ats_slug: 'apna' },
         { id: 'comp-swiggy', name: 'Swiggy', website_url: 'https://swiggy.com', careers_url: 'https://careers.swiggy.com/', ats_provider: 'smartrecruiters', ats_slug: 'swiggy' },
-        { id: 'comp-razorpay', name: 'Razorpay', website_url: 'https://razorpay.com', careers_url: 'https://boards.greenhouse.io/razorpaysoftwareprivatelimited', ats_provider: 'greenhouse', ats_slug: 'razorpaysoftwareprivatelimited' },
+        { id: 'comp-razorpay-live', name: 'Razorpay', website_url: 'https://razorpay.com', careers_url: 'https://boards.greenhouse.io/razorpaysoftwareprivatelimited', ats_provider: 'greenhouse', ats_slug: 'razorpaysoftwareprivatelimited' },
         { id: 'comp-fortanix', name: 'Fortanix', website_url: 'https://fortanix.com', careers_url: 'https://apply.workable.com/fortanix/', ats_provider: 'workable', ats_slug: 'fortanix' },
         { id: 'comp-signoz', name: 'SigNoz', website_url: 'https://signoz.io', careers_url: 'https://jobs.ashbyhq.com/signoz', ats_provider: 'ashby', ats_slug: 'signoz' },
         { id: 'comp-slice', name: 'Slice', website_url: 'https://sliceit.com', careers_url: 'https://boards.greenhouse.io/slice', ats_provider: 'greenhouse', ats_slug: 'slice' },
