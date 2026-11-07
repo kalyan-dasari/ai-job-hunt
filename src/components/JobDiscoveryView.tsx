@@ -66,6 +66,11 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   const [minScore, setMinScore] = useState<number>(0);
   const [sortBy, setSortBy] = useState<'relevance' | 'score' | 'newest'>('relevance');
 
+  // Specific Phase 5 Quick Filters
+  const [selectedCityFilter, setSelectedCityFilter] = useState<'all' | 'hyderabad' | 'bengaluru' | 'remote-india'>('all');
+  const [selectedExpFilter, setSelectedExpFilter] = useState<'all' | 'fresher' | '0-1' | '0-2' | 'internship' | 'graduate-trainee'>('all');
+  const [selectedTechFilter, setSelectedTechFilter] = useState<'all' | 'python' | 'fullstack' | 'backend' | 'aiml' | 'react'>('all');
+
   // Applied job IDs set for quick lookup
   const appliedJobIds = new Set(applications.map((a) => a.jobId));
 
@@ -151,6 +156,95 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     filtered = filtered.filter((j) => (j.matchResult?.overallScore || 0) >= minScore);
   }
 
+  // Phase 5 City Hub Filter
+  if (selectedCityFilter !== 'all') {
+    if (selectedCityFilter === 'hyderabad') {
+      filtered = filtered.filter((j) => j.location.toLowerCase().includes('hyderabad'));
+    } else if (selectedCityFilter === 'bengaluru') {
+      filtered = filtered.filter(
+        (j) => j.location.toLowerCase().includes('bengaluru') || j.location.toLowerCase().includes('bangalore')
+      );
+    } else if (selectedCityFilter === 'remote-india') {
+      filtered = filtered.filter(
+        (j) =>
+          j.locationCategory === 'India remote' ||
+          j.workArrangement === 'Remote' ||
+          j.location.toLowerCase().includes('remote')
+      );
+    }
+  }
+
+  // Phase 5 Experience Breakdown Filter
+  if (selectedExpFilter !== 'all') {
+    if (selectedExpFilter === 'fresher') {
+      filtered = filtered.filter(
+        (j) =>
+          j.fresherStatus === 'Fresher' ||
+          j.experienceLevel === 'Intern' ||
+          j.experienceLevel === 'Entry' ||
+          (j.minExpYears !== undefined && j.minExpYears <= 1) ||
+          j.matchResult?.isFresherEligible
+      );
+    } else if (selectedExpFilter === '0-1') {
+      filtered = filtered.filter(
+        (j) =>
+          (j.minExpYears !== undefined && j.minExpYears <= 1) ||
+          j.experienceLevel === 'Intern' ||
+          j.fresherStatus === 'Fresher'
+      );
+    } else if (selectedExpFilter === '0-2') {
+      filtered = filtered.filter(
+        (j) =>
+          (j.minExpYears !== undefined && j.minExpYears <= 2) ||
+          j.experienceLevel === 'Intern' ||
+          j.experienceLevel === 'Entry' ||
+          j.fresherStatus === 'Fresher'
+      );
+    } else if (selectedExpFilter === 'internship') {
+      filtered = filtered.filter(
+        (j) =>
+          j.employmentType === 'Internship' ||
+          j.experienceLevel === 'Intern' ||
+          j.title.toLowerCase().includes('intern')
+      );
+    } else if (selectedExpFilter === 'graduate-trainee') {
+      filtered = filtered.filter(
+        (j) =>
+          j.title.toLowerCase().includes('trainee') ||
+          j.title.toLowerCase().includes('graduate') ||
+          j.title.toLowerCase().includes('get') ||
+          j.description.toLowerCase().includes('graduate trainee')
+      );
+    }
+  }
+
+  // Phase 5 Technical Skill / Role Quick Filter
+  if (selectedTechFilter !== 'all') {
+    const t = selectedTechFilter.toLowerCase();
+    if (t === 'aiml') {
+      filtered = filtered.filter((j) => {
+        const comb = `${j.title} ${j.description} ${(j.requiredSkills || []).join(' ')}`.toLowerCase();
+        return (
+          comb.includes('ai') ||
+          comb.includes('machine learning') ||
+          comb.includes('ml') ||
+          comb.includes('deep learning') ||
+          comb.includes('llm')
+        );
+      });
+    } else if (t === 'fullstack') {
+      filtered = filtered.filter((j) => {
+        const comb = `${j.title} ${j.description}`.toLowerCase();
+        return comb.includes('full stack') || comb.includes('fullstack') || comb.includes('full-stack');
+      });
+    } else {
+      filtered = filtered.filter((j) => {
+        const comb = `${j.title} ${j.description} ${(j.requiredSkills || []).join(' ')}`.toLowerCase();
+        return comb.includes(t);
+      });
+    }
+  }
+
   // Sorting based on viewMode or explicit sort
   if (viewMode === 'latest' || sortBy === 'newest') {
     filtered.sort((a, b) => new Date(b.datePosted).getTime() - new Date(a.datePosted).getTime());
@@ -173,6 +267,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     setStartupOnly(false);
     setMinScore(0);
     setSortBy('relevance');
+    setSelectedCityFilter('all');
+    setSelectedExpFilter('all');
+    setSelectedTechFilter('all');
   };
 
   // Source attribution badge helper
@@ -459,6 +556,156 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               <option value="score">Match Score (Desc)</option>
               <option value="newest">Recently Posted</option>
             </select>
+          </div>
+        </div>
+
+        {/* Quick Filter Pills (Hubs, Experience, Roles) */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800 text-xs">
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+            <Compass className="w-3.5 h-3.5 text-sky-400" />
+            <span>Target Filters:</span>
+          </span>
+
+          {/* Hubs */}
+          <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800">
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'hyderabad' ? 'all' : 'hyderabad')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'hyderabad'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Hyderabad
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'bengaluru' ? 'all' : 'bengaluru')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'bengaluru'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Bengaluru
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'remote-india' ? 'all' : 'remote-india')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'remote-india'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Remote India
+            </button>
+          </div>
+
+          {/* Experience */}
+          <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800">
+            <button
+              onClick={() => setSelectedExpFilter(selectedExpFilter === 'fresher' ? 'all' : 'fresher')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedExpFilter === 'fresher'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-emerald-300 hover:text-white'
+              }`}
+            >
+              Fresher (0 yrs)
+            </button>
+            <button
+              onClick={() => setSelectedExpFilter(selectedExpFilter === '0-1' ? 'all' : '0-1')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedExpFilter === '0-1'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              0–1 yrs
+            </button>
+            <button
+              onClick={() => setSelectedExpFilter(selectedExpFilter === '0-2' ? 'all' : '0-2')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedExpFilter === '0-2'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              0–2 yrs
+            </button>
+            <button
+              onClick={() => setSelectedExpFilter(selectedExpFilter === 'internship' ? 'all' : 'internship')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedExpFilter === 'internship'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Internship
+            </button>
+            <button
+              onClick={() => setSelectedExpFilter(selectedExpFilter === 'graduate-trainee' ? 'all' : 'graduate-trainee')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedExpFilter === 'graduate-trainee'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Graduate Trainee
+            </button>
+          </div>
+
+          {/* Roles / Tech */}
+          <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800">
+            <button
+              onClick={() => setSelectedTechFilter(selectedTechFilter === 'python' ? 'all' : 'python')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedTechFilter === 'python'
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Python
+            </button>
+            <button
+              onClick={() => setSelectedTechFilter(selectedTechFilter === 'fullstack' ? 'all' : 'fullstack')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedTechFilter === 'fullstack'
+                  ? 'bg-indigo-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Full Stack
+            </button>
+            <button
+              onClick={() => setSelectedTechFilter(selectedTechFilter === 'backend' ? 'all' : 'backend')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedTechFilter === 'backend'
+                  ? 'bg-purple-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Backend
+            </button>
+            <button
+              onClick={() => setSelectedTechFilter(selectedTechFilter === 'aiml' ? 'all' : 'aiml')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedTechFilter === 'aiml'
+                  ? 'bg-pink-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              AI/ML
+            </button>
+            <button
+              onClick={() => setSelectedTechFilter(selectedTechFilter === 'react' ? 'all' : 'react')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedTechFilter === 'react'
+                  ? 'bg-cyan-500 text-slate-950 font-bold'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              React
+            </button>
           </div>
         </div>
 

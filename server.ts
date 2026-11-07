@@ -1160,6 +1160,83 @@ app.get('/api/sources/usage', (_req: Request, res: Response) => {
   }
 });
 
+// Source Quality Dashboard Endpoint
+app.get('/api/sources/quality', (_req: Request, res: Response) => {
+  try {
+    const allCompanies = companySourcesRepository.getAll();
+    const activeCompanies = allCompanies.filter((c) => c.status === 'active');
+    const successfulCompanies = allCompanies.filter(
+      (c) => c.lastSuccessfulCrawlAt && (!c.lastError || c.lastSuccessfulCrawlAt >= (c.lastCrawlAt || ''))
+    );
+    const failedCompanies = allCompanies.filter((c) => !!c.lastError);
+
+    const allJobs = jobsRepository.getAllJobs();
+    const indiaJobs = allJobs.filter(
+      (j) =>
+        j.locationCategory === 'India city' ||
+        j.locationCategory === 'India remote' ||
+        j.locationCategory === 'International remote explicitly open to India' ||
+        j.country === 'India' ||
+        (j.location && j.location.toLowerCase().includes('india'))
+    );
+    const fresherJobs = allJobs.filter(
+      (j) =>
+        j.fresherStatus === 'Fresher' ||
+        j.experienceLevel === 'Intern' ||
+        j.experienceLevel === 'Entry' ||
+        (j.minExpYears !== undefined && j.minExpYears <= 1) ||
+        j.matchResult?.isFresherEligible
+    );
+    const experiencedJobs = allJobs.filter(
+      (j) =>
+        j.fresherStatus === 'Experienced' ||
+        j.experienceLevel === 'Senior' ||
+        j.experienceLevel === 'Lead' ||
+        (j.minExpYears !== undefined && j.minExpYears >= 3)
+    );
+    const unclearJobs = allJobs.filter(
+      (j) =>
+        j.fresherStatus === 'Unclear' ||
+        (!j.fresherStatus &&
+          j.minExpYears === undefined &&
+          !['Intern', 'Entry', 'Senior', 'Lead'].includes(j.experienceLevel))
+    );
+    const expiredJobs = allJobs.filter((j) => j.freshnessStatus === 'Expired' || j.freshnessStatus === 'Closed');
+
+    const recentRuns = ingestionRunsRepository.getRecentRuns(10);
+    const lastSuccessfulRun = recentRuns.find((r) => r.status === 'completed');
+
+    // Aggregate recent exclusions across latest runs
+    const recentExclusions: any[] = [];
+    for (const r of recentRuns) {
+      if (r.details?.exclusions && Array.isArray(r.details.exclusions)) {
+        for (const exc of r.details.exclusions) {
+          if (recentExclusions.length < 30) {
+            recentExclusions.push(exc);
+          }
+        }
+      }
+    }
+
+    res.json({
+      totalSources: allCompanies.length,
+      activeSources: activeCompanies.length,
+      successfullyFetchedSources: successfulCompanies.length,
+      failedSources: failedCompanies.length,
+      totalJobsDiscovered: allJobs.length,
+      indiaRelevantJobs: indiaJobs.length,
+      fresherFriendlyJobs: fresherJobs.length,
+      jobsRequiringExperience: experiencedJobs.length,
+      unclearExperienceJobs: unclearJobs.length,
+      expiredJobs: expiredJobs.length,
+      lastSuccessfulDiscovery: lastSuccessfulRun?.completedAt || lastSuccessfulRun?.startedAt || null,
+      recentExclusions,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load source quality metrics', details: err.message });
+  }
+});
+
 // Dossier Job Discovery Agent Recommendations
 app.post('/api/discovery/recommendations', async (req: Request, res: Response) => {
   try {
