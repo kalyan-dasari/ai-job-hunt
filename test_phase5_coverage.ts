@@ -60,21 +60,47 @@ async function runPhase5Verification() {
   console.log('\n--- 3. HIERARCHICAL RANKING: FRESHER vs 7-YEAR SENIOR ---');
   const fresherProfile: CandidateProfile = {
     id: 'fresher-candidate-test',
-    fullName: 'Rahul Varma',
+    name: 'Rahul Varma',
     email: 'rahul@example.com',
+    phone: '+91 98765 43210',
+    location: 'Hyderabad, India',
     headline: 'Aspiring Full Stack & Python Developer',
     summary: 'Fresher graduate with Python, React, and SQL skills.',
     preferredRoles: ['Python Developer', 'Full Stack Developer', 'Software Engineer'],
     preferredLocations: ['Hyderabad', 'Bengaluru'],
     skills: ['Python', 'React', 'JavaScript', 'SQL', 'Git', 'FastAPI'],
+    skillCategories: {
+      languages: ['Python', 'JavaScript'],
+      frameworks: ['React', 'FastAPI'],
+      cloudDevops: ['Git'],
+      tools: ['VSCode'],
+      domainSpecialties: ['Web Development'],
+    },
     experience: [], // 0 years
     projects: [
-      { id: 'p1', title: 'Task Manager API', description: 'Built with Python and FastAPI', technologies: ['Python', 'FastAPI'], role: 'Author' },
+      {
+        id: 'p1',
+        title: 'Task Manager API',
+        summary: 'Built with Python and FastAPI',
+        techStack: ['Python', 'FastAPI'],
+        highlights: ['REST APIs', 'Async endpoints'],
+      },
     ],
     education: [
-      { id: 'e1', institution: 'JNTU Hyderabad', degree: 'B.Tech Computer Science', fieldOfStudy: 'Computer Science', graduationYear: 2026 },
+      {
+        id: 'e1',
+        institution: 'JNTU Hyderabad',
+        degree: 'B.Tech Computer Science',
+        field: 'Computer Science',
+        gradYear: '2026',
+      },
     ],
     certifications: [],
+    preferredArrangements: ['Remote', 'Hybrid'],
+    preferredTypes: ['Full-time', 'Internship'],
+    workAuthorization: 'Authorized to work in India',
+    rawResumeText: 'Rahul Varma fresher python developer',
+    activeResumeId: '',
     resumeVersions: [],
     updatedAt: new Date().toISOString(),
   };
