@@ -57,3 +57,24 @@ export interface DiscoveryAttempt {
   jobsFound: number;
   attemptedAt: string;
 }
+
+export interface SourceQualityMetrics {
+  totalSources: number;
+  activeSources: number;
+  successfullyFetchedSources: number;
+  failedSources: number;
+  totalJobsDiscovered: number;
+  indiaRelevantJobs: number;
+  fresherFriendlyJobs: number;
+  jobsRequiringExperience: number;
+  unclearExperienceJobs: number;
+  expiredJobs: number;
+  lastSuccessfulDiscovery?: string;
+  recentExclusions: Array<{
+    title: string;
+    company: string;
+    location: string;
+    source: string;
+    reason: string;
+  }>;
+}
