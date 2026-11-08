@@ -197,8 +197,8 @@ console.log(`1-Year -> Staff 7y+:     Score = ${match1yToSenior.overallScore}% |
 
 console.log('--- TEST 3: 2-Year Full Stack Developer ---');
 const match2yToSenior = calculateDeterministicMatch(twoYearFullStackProfile, jobStaff7y);
-console.log(`2-Year -> Staff 7y+: Score = ${match2yToSenior.overallScore}% (Capped: ${match2yToSenior.scoreCap}%)`);
-console.log(`  Concerns: ${match2yToSenior.breakdown.concerns.join('; ')}\n`);
+console.log(`2-Year -> Staff 7y+: Score = ${match2yToSenior.overallScore}%`);
+console.log(`  Concerns: ${match2yToSenior.eligibilityConcerns.join('; ')}\n`);
 
 console.log('--- TEST 4: 5-Year Senior Candidate ---');
 const jobSenior5y: Job = {
@@ -210,7 +210,7 @@ const jobSenior5y: Job = {
   maxExpYears: 8,
 };
 const match5yTo5y = calculateDeterministicMatch(fiveYearSeniorProfile, jobSenior5y);
-console.log(`5-Year -> Senior 5y Job: Score = ${match5yTo5y.overallScore}% | Concerns: ${match5yTo5y.breakdown.concerns.length === 0 ? 'None' : match5yTo5y.breakdown.concerns.join('; ')}\n`);
+console.log(`5-Year -> Senior 5y Job: Score = ${match5yTo5y.overallScore}% | Concerns: ${match5yTo5y.eligibilityConcerns.length === 0 ? 'None' : match5yTo5y.eligibilityConcerns.join('; ')}\n`);
 
 console.log('--- TEST 5: 7-Year Staff Candidate ---');
 const match7yToStaff = calculateDeterministicMatch(sevenYearStaffProfile, jobStaff7y);
@@ -219,6 +219,6 @@ console.log(`7-Year -> Staff 7y+ Job: Score = ${match7yToStaff.overallScore}% | 
 console.log('--- TEST 6: International Remote Job Without India Eligibility ---');
 const matchFresherToIntlRemote = calculateDeterministicMatch(fresherProfile, jobIntlRemoteNoIndia);
 console.log(`India Candidate -> US Only Remote Job: Score = ${matchFresherToIntlRemote.overallScore}%`);
-console.log(`  Location Score: ${matchFresherToIntlRemote.breakdown.locationScore}%`);
-console.log(`  Concerns: ${matchFresherToIntlRemote.breakdown.concerns.join('; ')}`);
+console.log(`  Location Score: ${matchFresherToIntlRemote.dimensions.locationAndArrangement}%`);
+console.log(`  Concerns: ${matchFresherToIntlRemote.eligibilityConcerns.join('; ')}`);
 console.log(`  -> GATING VERIFIED: Ineligible foreign location heavily penalizes score!\n`);
