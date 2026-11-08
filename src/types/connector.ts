@@ -69,7 +69,29 @@ export interface SourceQualityMetrics {
   jobsRequiringExperience: number;
   unclearExperienceJobs: number;
   expiredJobs: number;
+  jobsWithWorkingLinks: number;
   lastSuccessfulDiscovery?: string;
+  locationBreakdown: {
+    hyderabad: number;
+    bengaluru: number;
+    chennai: number;
+    pune: number;
+    mumbai: number;
+    delhiNcr: number;
+    otherIndianCities: number;
+    remoteIndia: number;
+    internationalRemote: number;
+    internationalLocation: number;
+    unknown: number;
+  };
+  sourceStatusBreakdown: {
+    configured: number;
+    active: number;
+    successfullyFetched: number;
+    failed: number;
+    temporarilyUnavailable: number;
+    noCurrentVacancies: number;
+  };
   recentExclusions: Array<{
     title: string;
     company: string;
