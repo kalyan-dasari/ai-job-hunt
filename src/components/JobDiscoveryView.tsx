@@ -164,6 +164,20 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
       filtered = filtered.filter(
         (j) => j.location.toLowerCase().includes('bengaluru') || j.location.toLowerCase().includes('bangalore')
       );
+    } else if (selectedCityFilter === 'chennai') {
+      filtered = filtered.filter((j) => j.location.toLowerCase().includes('chennai'));
+    } else if (selectedCityFilter === 'pune') {
+      filtered = filtered.filter((j) => j.location.toLowerCase().includes('pune'));
+    } else if (selectedCityFilter === 'mumbai') {
+      filtered = filtered.filter((j) => j.location.toLowerCase().includes('mumbai'));
+    } else if (selectedCityFilter === 'delhi-ncr') {
+      filtered = filtered.filter(
+        (j) =>
+          j.location.toLowerCase().includes('delhi') ||
+          j.location.toLowerCase().includes('noida') ||
+          j.location.toLowerCase().includes('gurgaon') ||
+          j.location.toLowerCase().includes('gurugram')
+      );
     } else if (selectedCityFilter === 'remote-india') {
       filtered = filtered.filter(
         (j) =>
@@ -171,6 +185,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           j.workArrangement === 'Remote' ||
           j.location.toLowerCase().includes('remote')
       );
+    } else if (selectedCityFilter === 'other') {
+      const mainHubs = ['hyderabad', 'bengaluru', 'bangalore', 'chennai', 'pune', 'mumbai', 'delhi', 'noida', 'gurgaon', 'gurugram'];
+      filtered = filtered.filter((j) => !mainHubs.some((h) => j.location.toLowerCase().includes(h)));
     }
   }
 
@@ -567,7 +584,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           </span>
 
           {/* Hubs */}
-          <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800">
+          <div className="inline-flex flex-wrap items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800">
             <button
               onClick={() => setSelectedCityFilter(selectedCityFilter === 'hyderabad' ? 'all' : 'hyderabad')}
               className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
@@ -589,6 +606,46 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               Bengaluru
             </button>
             <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'chennai' ? 'all' : 'chennai')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'chennai'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Chennai
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'pune' ? 'all' : 'pune')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'pune'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Pune
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'mumbai' ? 'all' : 'mumbai')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'mumbai'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Mumbai
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'delhi-ncr' ? 'all' : 'delhi-ncr')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'delhi-ncr'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Delhi NCR
+            </button>
+            <button
               onClick={() => setSelectedCityFilter(selectedCityFilter === 'remote-india' ? 'all' : 'remote-india')}
               className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
                 selectedCityFilter === 'remote-india'
@@ -597,6 +654,16 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               }`}
             >
               Remote India
+            </button>
+            <button
+              onClick={() => setSelectedCityFilter(selectedCityFilter === 'other' ? 'all' : 'other')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                selectedCityFilter === 'other'
+                  ? 'bg-sky-500 text-white'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Other Cities
             </button>
           </div>
 
