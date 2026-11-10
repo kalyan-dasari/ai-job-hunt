@@ -67,7 +67,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   const [sortBy, setSortBy] = useState<'relevance' | 'score' | 'newest'>('relevance');
 
   // Specific Phase 5 Quick Filters
-  const [selectedCityFilter, setSelectedCityFilter] = useState<'all' | 'hyderabad' | 'bengaluru' | 'remote-india'>('all');
+  const [selectedCityFilter, setSelectedCityFilter] = useState<
+    'all' | 'hyderabad' | 'bengaluru' | 'chennai' | 'pune' | 'mumbai' | 'delhi-ncr' | 'remote-india' | 'other'
+  >('all');
   const [selectedExpFilter, setSelectedExpFilter] = useState<'all' | 'fresher' | '0-1' | '0-2' | 'internship' | 'graduate-trainee'>('all');
   const [selectedTechFilter, setSelectedTechFilter] = useState<'all' | 'python' | 'fullstack' | 'backend' | 'aiml' | 'react'>('all');
 
