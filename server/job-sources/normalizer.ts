@@ -94,16 +94,18 @@ export function classifyLocation(
   const foreignSignals = [
     'united kingdom', 'london', 'united states', 'usa', 'us only', 'berlin', 'germany',
     'paris', 'france', 'tokyo', 'japan', 'singapore', 'sydney', 'australia', 'canada',
-    'amsterdam', 'netherlands', 'austria', 'vienna', 'dublin', 'ireland'
+    'amsterdam', 'netherlands', 'austria', 'vienna', 'dublin', 'ireland', 'indonesia',
+    'remote, us', 'remote-us', 'remote us', 'us remote', 'virginia beach', 'washington',
+    'durham, nc', 'durham', 'eindhoven'
   ];
-  const hasForeignSignal = foreignSignals.some((f) => loc.includes(f));
-  const hasIndiaExplicit = loc.includes('india') || INDIAN_TECH_CITIES.some((city) => loc.includes(city));
+  const hasForeignSignal = foreignSignals.some((f) => loc.includes(f)) || (/\b(?:us|usa|uk|de|sg)\b/i.test(loc) && !loc.includes('india'));
+  const hasIndiaExplicit = loc.includes('india') || INDIAN_TECH_CITIES.some((city) => loc.includes(city) && city !== 'india');
 
   if (hasForeignSignal && !hasIndiaExplicit) {
     return {
       category: 'International location',
       eligible: false,
-      isRemote: false,
+      isRemote: loc.includes('remote'),
       matchedLocation: location || 'International',
       reason: `International location (${location}) outside domestic India hiring scope.`,
     };

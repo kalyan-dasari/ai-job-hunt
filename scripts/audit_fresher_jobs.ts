@@ -38,3 +38,4 @@ fresherJobs.forEach((j, i) => {
   console.log(`  ApplyURL:    ${j.application_url || j.original_url}`);
   console.log('--------------------------------------------------------------------------------');
 });
+
