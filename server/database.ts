@@ -546,6 +546,18 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 7,
+    name: '007_user_preferences_and_application_resume_link',
+    up: (db: DatabaseSync) => {
+      try { db.exec("ALTER TABLE candidate_profile ADD COLUMN max_expected_salary REAL;"); } catch {}
+      try { db.exec("ALTER TABLE candidate_profile ADD COLUMN min_experience_years REAL DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE candidate_profile ADD COLUMN max_experience_years REAL DEFAULT 2;"); } catch {}
+      try { db.exec("ALTER TABLE candidate_profile ADD COLUMN preferred_industries TEXT DEFAULT '[]';"); } catch {}
+      try { db.exec("ALTER TABLE applications ADD COLUMN resume_version_id TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE applications ADD COLUMN cover_letter_text TEXT;"); } catch {}
+    },
+  },
 ];
 
 function runMigrations(db: DatabaseSync): void {
@@ -656,7 +668,11 @@ export const candidateRepository = {
       preferredLocations: fromJson(row.preferred_locations, []),
       preferredArrangements: fromJson(row.preferred_arrangements, []),
       preferredTypes: fromJson(row.preferred_types, []),
+      preferredIndustries: fromJson<string[]>(row.preferred_industries, []),
+      minExperienceYears: row.min_experience_years != null ? Number(row.min_experience_years) : 0,
+      maxExperienceYears: row.max_experience_years != null ? Number(row.max_experience_years) : 2,
       minExpectedSalary: row.min_expected_salary != null ? Number(row.min_expected_salary) : undefined,
+      maxExpectedSalary: row.max_expected_salary != null ? Number(row.max_expected_salary) : undefined,
       workAuthorization: row.work_authorization || '',
       rawResumeText: row.raw_resume_text || '',
       resumeVersions,
@@ -673,12 +689,16 @@ export const candidateRepository = {
         skills, skill_categories, experience, education, projects,
         certifications, preferred_roles, preferred_locations,
         preferred_arrangements, preferred_types, min_expected_salary,
+        max_expected_salary, min_experience_years, max_experience_years,
+        preferred_industries,
         work_authorization, raw_resume_text, active_resume_id, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
+        ?, ?, ?,
+        ?,
         ?, ?, ?, ?
       )
     `);
@@ -702,6 +722,10 @@ export const candidateRepository = {
       '[]',
       '[]',
       null,
+      null,
+      0,
+      2,
+      '[]',
       '',
       '',
       '',
@@ -724,12 +748,16 @@ export const candidateRepository = {
         skills, skill_categories, experience, education, projects,
         certifications, preferred_roles, preferred_locations,
         preferred_arrangements, preferred_types, min_expected_salary,
+        max_expected_salary, min_experience_years, max_experience_years,
+        preferred_industries,
         work_authorization, raw_resume_text, active_resume_id, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
+        ?, ?, ?,
+        ?,
         ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -750,6 +778,10 @@ export const candidateRepository = {
         preferred_arrangements = excluded.preferred_arrangements,
         preferred_types = excluded.preferred_types,
         min_expected_salary = excluded.min_expected_salary,
+        max_expected_salary = excluded.max_expected_salary,
+        min_experience_years = excluded.min_experience_years,
+        max_experience_years = excluded.max_experience_years,
+        preferred_industries = excluded.preferred_industries,
         work_authorization = excluded.work_authorization,
         raw_resume_text = excluded.raw_resume_text,
         active_resume_id = excluded.active_resume_id,
@@ -775,6 +807,10 @@ export const candidateRepository = {
       toJson(updated.preferredArrangements, '[]'),
       toJson(updated.preferredTypes, '[]'),
       updated.minExpectedSalary !== undefined ? updated.minExpectedSalary : null,
+      updated.maxExpectedSalary !== undefined ? updated.maxExpectedSalary : null,
+      updated.minExperienceYears !== undefined ? updated.minExperienceYears : 0,
+      updated.maxExperienceYears !== undefined ? updated.maxExperienceYears : 2,
+      toJson(updated.preferredIndustries, '[]'),
       updated.workAuthorization,
       updated.rawResumeText,
       updated.activeResumeId,
@@ -1168,6 +1204,8 @@ function mapApplicationFromRow(row: any): ApplicationRecord {
     recruiterContact: fromJson(row.recruiter_contact, undefined),
     nextFollowUpDate: row.next_follow_up_date || undefined,
     notes: row.notes || '',
+    resumeVersionId: row.resume_version_id || undefined,
+    coverLetterText: row.cover_letter_text || undefined,
     matchScoreAtApplication: row.match_score_at_application != null ? Number(row.match_score_at_application) : undefined,
     preparedMaterials: fromJson(row.prepared_materials, undefined),
     timeline: fromJson(row.timeline, []),
@@ -1192,6 +1230,8 @@ export const applicationsRepository = {
     jobId: string;
     status?: ApplicationStatus;
     notes?: string;
+    resumeVersionId?: string;
+    coverLetterText?: string;
     preparedMaterials?: PreparedMaterials;
   }): ApplicationRecord {
     const job = jobsRepository.getJobById(payload.jobId);
@@ -1228,6 +1268,8 @@ export const applicationsRepository = {
       updatedAt: now,
       submissionConfirmed: false,
       notes: payload.notes || '',
+      resumeVersionId: payload.resumeVersionId,
+      coverLetterText: payload.coverLetterText,
       matchScoreAtApplication: job.matchResult?.overallScore || 0,
       preparedMaterials: payload.preparedMaterials,
       timeline: initialTimeline,
@@ -1240,13 +1282,15 @@ export const applicationsRepository = {
           id, job_id, job_title, company, company_logo, location,
           work_arrangement, original_url, source, status, status_reason,
           submission_confirmed, submission_evidence, recruiter_contact,
-          next_follow_up_date, notes, match_score_at_application,
+          next_follow_up_date, notes, resume_version_id, cover_letter_text,
+          match_score_at_application,
           prepared_materials, timeline, applied_at, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
           ?, ?, ?,
-          ?, ?, ?,
+          ?, ?, ?, ?,
+          ?,
           ?, ?, ?, ?, ?
         )
       `);
@@ -1268,6 +1312,8 @@ export const applicationsRepository = {
         null,
         null,
         appRecord.notes,
+        appRecord.resumeVersionId || null,
+        appRecord.coverLetterText || null,
         appRecord.matchScoreAtApplication || 0,
         toJson(appRecord.preparedMaterials, null),
         toJson(appRecord.timeline, '[]'),
@@ -1337,6 +1383,8 @@ export const applicationsRepository = {
           recruiter_contact = ?,
           next_follow_up_date = ?,
           notes = ?,
+          resume_version_id = ?,
+          cover_letter_text = ?,
           prepared_materials = ?,
           timeline = ?,
           applied_at = ?,
@@ -1352,6 +1400,8 @@ export const applicationsRepository = {
         toJson(updated.recruiterContact, null),
         updated.nextFollowUpDate || null,
         updated.notes,
+        updated.resumeVersionId || null,
+        updated.coverLetterText || null,
         toJson(updated.preparedMaterials, null),
         toJson(updated.timeline, '[]'),
         updated.appliedAt || null,
