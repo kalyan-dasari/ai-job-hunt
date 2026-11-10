@@ -37,3 +37,4 @@ Please include:
 - The affected component or endpoint.
 
 We will acknowledge receipt within 48 hours and work on a fix promptly.
+
