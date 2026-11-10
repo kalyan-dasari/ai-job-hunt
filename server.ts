@@ -10,6 +10,7 @@ import { ApplicationRecord, EmailMessageRecord, NotificationItem } from './src/t
 import { SourceConnector } from './src/types/connector.ts';
 import {
   initDatabase,
+  closeDatabase,
   getDatabasePath,
   candidateRepository,
   jobsRepository,
@@ -43,6 +44,60 @@ const port = process.env.PORT || 3000;
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
+// Security Headers Middleware
+app.use((_req: Request, res: Response, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https:;"
+  );
+  next();
+});
+
+// Rate Limiter Middleware (Sliding window in-memory)
+interface RateLimitBucket {
+  count: number;
+  resetTime: number;
+}
+const rateLimitMap = new Map<string, RateLimitBucket>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const RATE_LIMIT_MAX_REQUESTS = 180; // 180 requests per minute per IP
+
+app.use((req: Request, res: Response, next) => {
+  // Allow health checks and static assets without rate limiting
+  if (req.path === '/health' || req.path === '/api/health' || !req.path.startsWith('/api')) {
+    return next();
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+  const now = Date.now();
+  let bucket = rateLimitMap.get(clientIp);
+
+  if (!bucket || now > bucket.resetTime) {
+    bucket = { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitMap.set(clientIp, bucket);
+  } else {
+    bucket.count++;
+  }
+
+  res.setHeader('X-RateLimit-Limit', RATE_LIMIT_MAX_REQUESTS.toString());
+  res.setHeader('X-RateLimit-Remaining', Math.max(0, RATE_LIMIT_MAX_REQUESTS - bucket.count).toString());
+  res.setHeader('X-RateLimit-Reset', Math.ceil(bucket.resetTime / 1000).toString());
+
+  if (bucket.count > RATE_LIMIT_MAX_REQUESTS) {
+    res.status(429).json({
+      error: 'Too many requests. Please slow down and try again shortly.',
+      retryAfterSeconds: Math.ceil((bucket.resetTime - now) / 1000),
+    });
+    return;
+  }
+
+  next();
+});
+
 // Shared Gemini client
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
@@ -60,16 +115,44 @@ function hasValidGeminiKey(): boolean {
 
 // ---------------- API ROUTES ----------------
 
-// Health
+// Health endpoints (root /health and /api/health)
+const getHealthResponse = () => ({
+  status: 'healthy',
+  timestamp: new Date().toISOString(),
+  service: 'JobPilot AI Server',
+  database: 'SQLite',
+  databasePath: getDatabasePath(),
+  geminiConfigured: hasValidGeminiKey(),
+  schedulerRunning: ingestionService.isSchedulerRunning(),
+});
+
+app.get('/health', (_req: Request, res: Response) => {
+  res.json(getHealthResponse());
+});
+
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    service: 'JobPilot AI Server',
-    database: 'SQLite',
-    databasePath: getDatabasePath(),
-    geminiConfigured: hasValidGeminiKey(),
-  });
+  res.json(getHealthResponse());
+});
+
+// Scheduler Configuration Endpoints
+app.get('/api/scheduler', (_req: Request, res: Response) => {
+  res.json(ingestionService.getConfig());
+});
+
+app.post('/api/scheduler/config', (req: Request, res: Response) => {
+  try {
+    const { enabled, intervalMinutes } = req.body;
+    ingestionService.updateConfig(
+      typeof enabled === 'boolean' ? enabled : true,
+      Number(intervalMinutes) || 60
+    );
+    res.json({
+      message: 'Scheduler configuration updated successfully',
+      config: ingestionService.getConfig(),
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: 'Failed to update scheduler configuration', details: err.message });
+  }
 });
 
 // Candidate Profile Endpoints
@@ -97,6 +180,26 @@ app.put('/api/candidate', (req: Request, res: Response) => {
 app.post('/api/candidate/upload-resume', async (req: Request, res: Response) => {
   try {
     const { rawText, fileBase64, mimeType, fileName } = req.body;
+
+    if (fileBase64) {
+      // Validate file size: maximum 10MB base64 payload (~7.5MB raw file)
+      if (typeof fileBase64 === 'string' && fileBase64.length > 14 * 1024 * 1024) {
+        res.status(413).json({ error: 'Uploaded file exceeds the 10MB size limit.' });
+        return;
+      }
+      // Validate MIME type
+      const allowedMimes = [
+        'application/pdf',
+        'text/plain',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+        'text/markdown',
+      ];
+      if (mimeType && !allowedMimes.includes(mimeType.toLowerCase()) && !mimeType.startsWith('text/')) {
+        res.status(415).json({ error: 'Unsupported file type. Please upload a PDF or text document.' });
+        return;
+      }
+    }
 
     let resumeText = rawText || '';
 
@@ -929,7 +1032,7 @@ app.get('/api/applications', (_req: Request, res: Response) => {
 
 app.post('/api/applications', (req: Request, res: Response) => {
   try {
-    const { jobId, status, notes, preparedMaterials } = req.body;
+    const { jobId, status, notes, preparedMaterials, resumeVersionId, coverLetterText } = req.body;
     if (!jobId) {
       res.status(400).json({ error: 'jobId is required' });
       return;
@@ -950,6 +1053,8 @@ app.post('/api/applications', (req: Request, res: Response) => {
       jobId,
       status,
       notes,
+      resumeVersionId,
+      coverLetterText,
       preparedMaterials,
     });
 
@@ -1592,9 +1697,29 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(Number(port), '0.0.0.0', () => {
+  const server = app.listen(Number(port), '0.0.0.0', () => {
     console.log(`JobPilot AI Full-Stack Server running at http://localhost:${port}`);
   });
+
+  // Graceful shutdown handling
+  const shutdown = (signal: string) => {
+    console.log(`\n[Server] Received ${signal}. Shutting down gracefully...`);
+    ingestionService.stopScheduler();
+    server.close(() => {
+      console.log('[Server] HTTP server closed.');
+      closeDatabase();
+      console.log('[Server] SQLite connection closed cleanly.');
+      process.exit(0);
+    });
+
+    setTimeout(() => {
+      console.error('[Server] Graceful shutdown timeout exceeded. Forcing termination.');
+      process.exit(1);
+    }, 10000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 export { app, startServer };

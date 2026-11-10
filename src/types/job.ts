@@ -82,6 +82,8 @@ export interface MatchResult {
   fresherExplanation?: string;
   locationCompatibilityNote?: string;
   locationCategory?: LocationCategory;
+  salaryFitNote?: string;
+  industryFitNote?: string;
   riskAssessment?: string;
   mandatoryRequirementsMet?: boolean;
 }

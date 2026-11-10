@@ -190,8 +190,49 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
     educationScore = 95;
   }
 
-  // 6. Domain Relevance
-  const domainScore = 85;
+  // 6. Domain & Industry Relevance
+  let domainScore = 85;
+  let industryFitNote: string | undefined;
+  if (profile.preferredIndustries && profile.preferredIndustries.length > 0) {
+    const jobInd = (job.startupInfo?.industry || '').toLowerCase();
+    const matchesIndustry = profile.preferredIndustries.some(
+      (ind) => jobInd.includes(ind.toLowerCase()) || descLower.includes(ind.toLowerCase())
+    );
+    if (matchesIndustry) {
+      domainScore = 95;
+      industryFitNote = `Industry matches preferred sectors (${profile.preferredIndustries.join(', ')}).`;
+    }
+  }
+
+  // 7. Salary Alignment Evaluation (Truthful - Never invented)
+  let salaryFitNote: string = 'Salary undisclosed by employer';
+  if (job.salary && (job.salary.min || job.salary.max || job.salary.displayText)) {
+    const maxVal = job.salary.max || job.salary.min || 0;
+    if (profile.minExpectedSalary && profile.minExpectedSalary > 0) {
+      if (maxVal > 0 && maxVal >= profile.minExpectedSalary) {
+        salaryFitNote = `Published compensation meets candidate expected range (${job.salary.displayText || `${job.salary.currency} ${maxVal}`}).`;
+      } else if (maxVal > 0) {
+        salaryFitNote = `Published compensation (${job.salary.displayText || `${job.salary.currency} ${maxVal}`}) below requested target (${profile.minExpectedSalary}).`;
+      } else {
+        salaryFitNote = `Published salary: ${job.salary.displayText || 'Disclosed'}.`;
+      }
+    } else {
+      salaryFitNote = `Published salary: ${job.salary.displayText || `${job.salary.currency} ${maxVal}`}.`;
+    }
+  }
+
+  // 8. Work Arrangement & Type Compatibility
+  let arrangementBonus = 0;
+  if (profile.preferredArrangements && profile.preferredArrangements.length > 0) {
+    if (profile.preferredArrangements.includes(job.workArrangement)) {
+      arrangementBonus += 2;
+    }
+  }
+  if (profile.preferredTypes && profile.preferredTypes.length > 0) {
+    if (profile.preferredTypes.includes(job.employmentType)) {
+      arrangementBonus += 2;
+    }
+  }
 
   if (required.length >= 3 && matchedSkillsCount === 0) {
     eligibilityConcerns.push('Core skills gap: Profile does not list required primary technical skills.');
@@ -207,6 +248,8 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
     locationScore * 0.10 +
     educationScore * 0.10
   );
+
+  overall += arrangementBonus;
 
   // Freshness bonus: +3 points if posted within last 7 days
   const postedMs = job.datePosted ? new Date(job.datePosted).getTime() : 0;
@@ -278,6 +321,8 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
       : `Requires ${minJobExp || 3}+ years experience.`,
     locationCompatibilityNote: locationNote,
     locationCategory: locCat,
+    salaryFitNote,
+    industryFitNote,
     riskAssessment,
     mandatoryRequirementsMet,
   };

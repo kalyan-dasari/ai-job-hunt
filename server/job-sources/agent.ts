@@ -125,8 +125,6 @@ export class JobDiscoveryAgent {
         targetCompanies = companySourcesRepository.getAll().filter((c) => c.status === 'active');
         if (options.limitCompanies && options.limitCompanies > 0) {
           targetCompanies = targetCompanies.slice(0, options.limitCompanies);
-        } else {
-          targetCompanies = targetCompanies.slice(0, 30);
         }
       }
 
