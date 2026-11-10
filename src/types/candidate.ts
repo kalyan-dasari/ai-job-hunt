@@ -65,6 +65,10 @@ export interface CandidateProfile {
   preferredArrangements: ('Remote' | 'Hybrid' | 'On-site')[];
   preferredTypes: ('Full-time' | 'Internship' | 'Part-time' | 'Contract')[];
   minExpectedSalary?: number;
+  maxExpectedSalary?: number;
+  minExperienceYears?: number;
+  maxExperienceYears?: number;
+  preferredIndustries?: string[];
   workAuthorization: string;
   rawResumeText: string;
   resumeVersions: ResumeVersion[];
