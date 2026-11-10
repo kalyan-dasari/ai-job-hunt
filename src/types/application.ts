@@ -63,6 +63,8 @@ export interface ApplicationRecord {
   nextFollowUpDate?: string;
   notes: string;
   matchScoreAtApplication?: number;
+  resumeVersionId?: string;
+  coverLetterText?: string;
   preparedMaterials?: PreparedMaterials;
   timeline: ApplicationTimelineEvent[];
   isDemo?: boolean;

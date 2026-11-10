@@ -9,6 +9,7 @@ import { ApplicationAssistantModal } from './components/ApplicationAssistantModa
 import { JobDetailsModal } from './components/JobDetailsModal';
 import { ResponseInboxView } from './components/ResponseInboxView';
 import { SourcesIngestionView } from './components/SourcesIngestionView';
+import { SettingsView } from './components/SettingsView';
 import { NotificationsModal } from './components/NotificationsModal';
 import { api } from './api/client';
 import { Job } from './types/job';
@@ -262,6 +263,14 @@ export default function App() {
           <SourcesIngestionView
             connectors={connectors}
             onJobsImported={refreshAllData}
+          />
+        )}
+
+        {activeTab === 'settings' && (
+          <SettingsView
+            profile={profile}
+            onUpdateProfile={handleUpdateProfile}
+            onRefreshData={refreshAllData}
           />
         )}
       </main>
