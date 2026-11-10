@@ -120,3 +120,4 @@ for (const [cat, count] of Object.entries(counts)) {
   sum += count;
 }
 console.log(`TOTAL SUM: ${sum} / 277 (Matches: ${sum === allJobs.length})`);
+

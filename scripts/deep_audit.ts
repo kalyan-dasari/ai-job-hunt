@@ -70,3 +70,4 @@ allJobs.forEach(j => {
   locCatCounts[c] = (locCatCounts[c] || 0) + 1;
 });
 console.log(locCatCounts);
+
