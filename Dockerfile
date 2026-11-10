@@ -57,3 +57,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Start full-stack server
 CMD ["node", "--loader", "tsx", "server.ts"]
+
