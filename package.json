@@ -16,7 +16,8 @@
     "test:dossier": "tsx test_dossier_discovery.ts",
     "test:public": "tsx test_public_discovery.ts",
     "test:live": "tsx test_live_public_sources.ts",
-    "test:security": "cross-env NODE_ENV=test tsx test_security_audit.ts"
+    "test:security": "cross-env NODE_ENV=test tsx test_security_audit.ts",
+    "audit:live": "tsx scripts/live_discovery_audit.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

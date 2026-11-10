@@ -1,7 +1,6 @@
 import { initDatabase, companySourcesRepository, jobsRepository } from '../server/database.ts';
 import { careerPageCrawler } from '../server/job-sources/discovery/crawler.ts';
 import { RawSourceJob } from '../server/job-sources/types.ts';
-import { normalizeJob } from '../server/job-sources/normalizer.ts';
 
 async function runLiveDiscoveryAudit() {
   console.log('========================================================================');
@@ -90,3 +89,4 @@ runLiveDiscoveryAudit().catch((err) => {
   console.error('Fatal error during live discovery audit:', err);
   process.exit(1);
 });
+
