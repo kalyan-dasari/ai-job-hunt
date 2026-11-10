@@ -194,7 +194,7 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
   let domainScore = 85;
   let industryFitNote: string | undefined;
   if (profile.preferredIndustries && profile.preferredIndustries.length > 0) {
-    const jobInd = (job.startupMetadata?.industry || '').toLowerCase();
+    const jobInd = (job.startupInfo?.industry || '').toLowerCase();
     const matchesIndustry = profile.preferredIndustries.some(
       (ind) => jobInd.includes(ind.toLowerCase()) || descLower.includes(ind.toLowerCase())
     );
