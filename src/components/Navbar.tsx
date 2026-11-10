@@ -21,7 +21,8 @@ export type NavTab =
   | 'applications'
   | 'resume'
   | 'inbox'
-  | 'sources';
+  | 'sources'
+  | 'settings';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -134,6 +135,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Sources
           </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-3 py-1.5 text-xs xl:text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+              activeTab === 'settings'
+                ? 'bg-slate-800 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            Settings
+          </button>
         </nav>
 
         {/* Zone 3: Primary Actions and Alerts */}
@@ -228,6 +239,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           Sources
+        </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`px-2.5 py-1 rounded font-medium whitespace-nowrap ${
+            activeTab === 'settings' ? 'bg-slate-800 text-white' : 'text-slate-400'
+          }`}
+        >
+          Settings
         </button>
       </div>
     </header>

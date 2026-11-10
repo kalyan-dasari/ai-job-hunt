@@ -20,6 +20,8 @@ export class IngestionService {
   private schedulerTimer: NodeJS.Timeout | null = null;
   private schedulerIntervalMs: number = 60 * 60 * 1000; // 1 hour default
   private runsSinceLastExternalFetch: number = 0;
+  private lastRunAt: string | null = null;
+  private isSchedulerEnabled: boolean = true;
 
   public isRunning(): boolean {
     return this.isIngestionRunning;
@@ -27,6 +29,27 @@ export class IngestionService {
 
   public isSchedulerRunning(): boolean {
     return this.schedulerTimer !== null;
+  }
+
+  public getConfig(): { enabled: boolean; intervalMinutes: number; lastRunAt: string | null; isRunning: boolean } {
+    return {
+      enabled: this.isSchedulerEnabled && this.schedulerTimer !== null,
+      intervalMinutes: Math.round(this.schedulerIntervalMs / (60 * 1000)),
+      lastRunAt: this.lastRunAt,
+      isRunning: this.isIngestionRunning,
+    };
+  }
+
+  public updateConfig(enabled: boolean, intervalMinutes: number): void {
+    const validMinutes = Math.max(5, Math.min(1440, intervalMinutes || 60));
+    this.schedulerIntervalMs = validMinutes * 60 * 1000;
+    this.isSchedulerEnabled = enabled;
+
+    if (enabled) {
+      this.startScheduler(validMinutes);
+    } else {
+      this.stopScheduler();
+    }
   }
 
   /**
@@ -38,6 +61,7 @@ export class IngestionService {
     }
 
     this.isIngestionRunning = true;
+    this.lastRunAt = new Date().toISOString();
     try {
       const { run } = await jobDiscoveryAgent.discover({
         sourceIds: options.sourceIds,
