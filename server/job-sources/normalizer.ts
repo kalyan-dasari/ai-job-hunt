@@ -385,17 +385,28 @@ export function normalizeExperienceLevel(
     };
   }
 
-  // 2. Explicit Freshers or 0-1, 0-2 years in title or description
+  // 2. Explicit Freshers or 0-1, 0-2 years in title, description, or explicit minExp
+  if (minExp !== undefined && minExp <= 2 && minExp >= 0) {
+    return {
+      level: 'Entry',
+      minYears: minExp,
+      maxYears: 2,
+      fresherStatus: 'Fresher',
+      isFresherEligible: true,
+      explanation: `Explicitly specifies 0–2 years (${minExp} yrs) experience requirement.`,
+    };
+  }
+
   const fresherPatterns = [
     /\b(?:0\s*[-–to]\s*[12]|0\s*[-–to]\s*1|0\s*[-–to]\s*2)\s*(?:years?|yrs?)/i,
     /\b(?:freshers?|fresh\s+graduates?|recent\s+graduates?|campus\s+hire|entry\s+level|college\s+graduates?)\b/i,
-    /\b(?:1\s*[-–to]\s*2)\s*(?:years?|yrs?)\b/i,
+    /\b(?:1\s*[-–to]\s*2|\b[0-2]\+?\s*(?:years?|yrs?))\s*(?:of\s+)?experience/i,
   ];
   for (const pattern of fresherPatterns) {
     if (pattern.test(combined)) {
       return {
         level: 'Entry',
-        minYears: 0,
+        minYears: minExp !== undefined ? minExp : 0,
         maxYears: 2,
         fresherStatus: 'Fresher',
         isFresherEligible: true,
