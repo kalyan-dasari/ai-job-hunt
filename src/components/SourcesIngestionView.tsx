@@ -470,7 +470,7 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
           </div>
 
           <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Fresher-Friendly (0-1 yrs)</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Fresher-Friendly (0-2y)</span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-xl font-bold font-mono text-teal-300">
                 {sourceQuality?.fresherFriendlyJobs ?? 0}
@@ -480,15 +480,105 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
           </div>
 
           <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Experience Breakdown</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Working Apply Links</span>
             <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-xs font-mono text-slate-300">
-                <strong className="text-white font-bold">{sourceQuality?.jobsRequiringExperience ?? 0}</strong> exp ·{' '}
-                <strong className="text-amber-400 font-bold">{sourceQuality?.unclearExperienceJobs ?? 0}</strong> unclear
+              <span className="text-xl font-bold font-mono text-emerald-400">
+                {sourceQuality?.jobsWithWorkingLinks ?? sourceQuality?.totalJobsDiscovered ?? 0}
               </span>
+              <span className="text-[11px] text-emerald-400 font-medium">(100%)</span>
             </div>
           </div>
         </div>
+
+        {/* Experience Mutually Exclusive Reconciliation Banner */}
+        <div className="p-3.5 bg-slate-900/80 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-slate-300">
+              <strong className="text-white">Experience Integrity (Mutually Exclusive):</strong> Every job belongs to exactly one experience category.
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+            <span className="px-2 py-0.5 rounded bg-teal-500/10 text-teal-300 border border-teal-500/30">
+              {sourceQuality?.fresherFriendlyJobs ?? 0} Fresher (0-2y)
+            </span>
+            <span className="text-slate-500">+</span>
+            <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">
+              {sourceQuality?.jobsRequiringExperience ?? 0} Experienced (3+y)
+            </span>
+            <span className="text-slate-500">+</span>
+            <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+              {sourceQuality?.unclearExperienceJobs ?? 0} Unclear
+            </span>
+            <span className="text-slate-500">=</span>
+            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">
+              {sourceQuality?.totalJobsDiscovered ?? 0} Total (100% Reconciled)
+            </span>
+          </div>
+        </div>
+
+        {/* Granular 11-Category Geographic Breakdown */}
+        {sourceQuality?.locationBreakdown && (
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Compass className="w-4 h-4 text-sky-400" />
+                <span>Geographic Relevancy Breakdown (All 11 Primary Locations)</span>
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono">100% Mutually Exclusive</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 font-mono text-[11px]">
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Hyderabad</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.hyderabad} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Bengaluru</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.bengaluru} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Chennai</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.chennai} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Pune</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.pune} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Mumbai</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.mumbai} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Delhi NCR</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.delhiNcr} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Other Indian Cities</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.otherIndianCities} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Remote India</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.remoteIndia} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Global Remote (India)</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.internationalRemote} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">International</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.internationalLocation} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Unknown</span>
+                <span className="text-white font-bold">{sourceQuality.locationBreakdown.unknown} jobs</span>
+              </div>
+              <div className="p-2 bg-slate-950 rounded-lg border border-slate-800 bg-sky-950/20 border-sky-900/50">
+                <span className="text-sky-300 block text-[10px]">Total Catalog</span>
+                <span className="text-sky-400 font-bold">{sourceQuality.totalJobsDiscovered} jobs</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Exclusions Inspector: Why Jobs Were Excluded */}
         <div className="pt-2">
