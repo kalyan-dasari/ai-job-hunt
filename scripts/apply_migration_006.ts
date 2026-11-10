@@ -18,3 +18,4 @@ console.log(`Experienced:      ${experiencedJobs.length}`);
 console.log(`Unclear:          ${unclearJobs.length}`);
 console.log(`SUM:              ${fresherJobs.length + experiencedJobs.length + unclearJobs.length}`);
 console.log(`Reconciled:       ${fresherJobs.length + experiencedJobs.length + unclearJobs.length === allJobs.length}`);
+

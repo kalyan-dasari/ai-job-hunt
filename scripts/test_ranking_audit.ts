@@ -103,8 +103,10 @@ const sevenYearStaffProfile: CandidateProfile = {
   ]
 };
 
+const baseReport = { status: 'Verified' as const, confidence: 95, lastChecked: '2026-11-01', summary: '', checks: [], evidence: [], warnings: [] };
+
 // Sample Jobs for Testing
-const jobFresherPython = {
+const jobFresherPython: Job = {
   id: 'job-fresher-py',
   title: 'Junior Python Developer',
   company: 'Observe.ai',
@@ -126,10 +128,11 @@ const jobFresherPython = {
   responsibilities: ['Build Python APIs'],
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
-  isStartup: true
-} as Job;
+  isStartup: true,
+  verificationReport: baseReport
+};
 
-const jobStaff7y = {
+const jobStaff7y: Job = {
   id: 'job-staff-7y',
   title: 'Staff Platform Architect (7+ yrs)',
   company: 'Global FinTech',
@@ -151,10 +154,11 @@ const jobStaff7y = {
   responsibilities: ['Lead platform architecture'],
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
-  isStartup: false
-} as Job;
+  isStartup: false,
+  verificationReport: baseReport
+};
 
-const jobIntlRemoteNoIndia = {
+const jobIntlRemoteNoIndia: Job = {
   id: 'job-intl-remote-us',
   title: 'Remote Full Stack Engineer (US Only)',
   company: 'US SaaS Corp',
@@ -176,8 +180,9 @@ const jobIntlRemoteNoIndia = {
   responsibilities: ['Build features'],
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
-  isStartup: true
-} as Job;
+  isStartup: true,
+  verificationReport: baseReport
+};
 
 console.log('--- TEST 1: Fresher (0y) vs Suitable Fresher Job vs Senior (7y+) Role ---');
 const matchFresherToFresher = calculateDeterministicMatch(fresherProfile, jobFresherPython);
