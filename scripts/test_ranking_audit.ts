@@ -104,7 +104,7 @@ const sevenYearStaffProfile: CandidateProfile = {
 };
 
 // Sample Jobs for Testing
-const jobFresherPython: Job = {
+const jobFresherPython = {
   id: 'job-fresher-py',
   title: 'Junior Python Developer',
   company: 'Observe.ai',
@@ -118,7 +118,7 @@ const jobFresherPython: Job = {
   locationCategory: 'India city',
   requiredSkills: ['Python', 'SQL'],
   preferredSkills: ['FastAPI'],
-  source: 'company_board',
+  source: 'Career Page',
   sourceJobId: 'obs-01',
   originalUrl: 'https://observe.ai/jobs/01',
   canonicalUrl: 'https://observe.ai/jobs/01',
@@ -127,9 +127,9 @@ const jobFresherPython: Job = {
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
   isStartup: true
-};
+} as Job;
 
-const jobStaff7y: Job = {
+const jobStaff7y = {
   id: 'job-staff-7y',
   title: 'Staff Platform Architect (7+ yrs)',
   company: 'Global FinTech',
@@ -143,7 +143,7 @@ const jobStaff7y: Job = {
   locationCategory: 'India city',
   requiredSkills: ['Python', 'SQL', 'Architecture'], // skills overlap with fresher!
   preferredSkills: [],
-  source: 'company_board',
+  source: 'Career Page',
   sourceJobId: 'fin-01',
   originalUrl: 'https://fintech.com/jobs/01',
   canonicalUrl: 'https://fintech.com/jobs/01',
@@ -152,9 +152,9 @@ const jobStaff7y: Job = {
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
   isStartup: false
-};
+} as Job;
 
-const jobIntlRemoteNoIndia: Job = {
+const jobIntlRemoteNoIndia = {
   id: 'job-intl-remote-us',
   title: 'Remote Full Stack Engineer (US Only)',
   company: 'US SaaS Corp',
@@ -168,7 +168,7 @@ const jobIntlRemoteNoIndia: Job = {
   locationCategory: 'International location',
   requiredSkills: ['React', 'Node.js', 'Python'],
   preferredSkills: [],
-  source: 'company_board',
+  source: 'Career Page',
   sourceJobId: 'us-01',
   originalUrl: 'https://ussaas.com/jobs/01',
   canonicalUrl: 'https://ussaas.com/jobs/01',
@@ -177,7 +177,7 @@ const jobIntlRemoteNoIndia: Job = {
   datePosted: '2026-11-01',
   lastChecked: '2026-11-07',
   isStartup: true
-};
+} as Job;
 
 console.log('--- TEST 1: Fresher (0y) vs Suitable Fresher Job vs Senior (7y+) Role ---');
 const matchFresherToFresher = calculateDeterministicMatch(fresherProfile, jobFresherPython);

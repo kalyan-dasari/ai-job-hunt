@@ -209,18 +209,36 @@ async function runPhase5Verification() {
 
   const hyderabadJobs = allJobs.filter(j => j.location.toLowerCase().includes('hyderabad'));
   const bengaluruJobs = allJobs.filter(j => j.location.toLowerCase().includes('bengaluru') || j.location.toLowerCase().includes('bangalore'));
-  const remoteIndiaJobs = allJobs.filter(j => j.locationCategory === 'India remote' || (j.workArrangement === 'Remote' && (j.location.toLowerCase().includes('india') || j.country === 'India')));
-  const fresherJobs = allJobs.filter(j => j.fresherStatus === 'Fresher' || j.experienceLevel === 'Intern' || j.experienceLevel === 'Entry' || (j.minExpYears !== undefined && j.minExpYears <= 1) || j.matchResult?.isFresherEligible);
-  const unclearJobs = allJobs.filter(j => j.fresherStatus === 'Unclear' || (!j.fresherStatus && j.minExpYears === undefined && !['Intern', 'Entry', 'Senior', 'Lead'].includes(j.experienceLevel)));
-  const experiencedJobs = allJobs.filter(j => j.fresherStatus === 'Experienced' || j.experienceLevel === 'Senior' || j.experienceLevel === 'Lead' || (j.minExpYears !== undefined && j.minExpYears >= 3));
+  const chennaiJobs = allJobs.filter(j => j.location.toLowerCase().includes('chennai'));
+  const puneJobs = allJobs.filter(j => j.location.toLowerCase().includes('pune'));
+  const mumbaiJobs = allJobs.filter(j => j.location.toLowerCase().includes('mumbai'));
+  const delhiNcrJobs = allJobs.filter(j => j.location.toLowerCase().includes('delhi') || j.location.toLowerCase().includes('noida') || j.location.toLowerCase().includes('gurgaon') || j.location.toLowerCase().includes('gurugram'));
+  const otherIndiaJobs = allJobs.filter(j => {
+    const l = j.location.toLowerCase();
+    const hubs = ['hyderabad', 'bengaluru', 'bangalore', 'chennai', 'pune', 'mumbai', 'delhi', 'noida', 'gurgaon', 'gurugram'];
+    const foreign = ['united states', 'london', 'berlin', 'singapore', 'remote, us', 'remote-us', 'eindhoven', 'virginia beach', 'durham'];
+    return !hubs.some(h => l.includes(h)) && !foreign.some(f => l.includes(f)) && !l.includes('remote');
+  });
+  const remoteIndiaJobs = allJobs.filter(j => j.locationCategory === 'India remote' || (j.workArrangement === 'Remote' && (j.location.toLowerCase().includes('india') || j.country === 'India') && !j.location.toLowerCase().includes('us')));
+  
+  // Mutually Exclusive Experience Classification
+  const fresherJobs = allJobs.filter(j => j.fresherStatus === 'Fresher');
+  const experiencedJobs = allJobs.filter(j => j.fresherStatus === 'Experienced');
+  const unclearJobs = allJobs.filter(j => j.fresherStatus === 'Unclear');
 
   console.log(`  1. Total Unique Jobs in SQLite:     ${totalJobsCount}`);
   console.log(`  2. Hyderabad Jobs:                  ${hyderabadJobs.length}`);
   console.log(`  3. Bengaluru Jobs:                  ${bengaluruJobs.length}`);
-  console.log(`  4. Remote in India Jobs:            ${remoteIndiaJobs.length}`);
-  console.log(`  5. Fresher-Friendly Jobs (0-1 yrs): ${fresherJobs.length}`);
-  console.log(`  6. Unclear Experience Jobs:         ${unclearJobs.length}`);
-  console.log(`  7. Experienced Jobs (3+ yrs):       ${experiencedJobs.length}`);
+  console.log(`  4. Chennai Jobs:                    ${chennaiJobs.length}`);
+  console.log(`  5. Pune Jobs:                       ${puneJobs.length}`);
+  console.log(`  6. Mumbai Jobs:                     ${mumbaiJobs.length}`);
+  console.log(`  7. Delhi NCR Jobs:                  ${delhiNcrJobs.length}`);
+  console.log(`  8. Other Indian Cities Jobs:        ${otherIndiaJobs.length}`);
+  console.log(`  9. Remote in India Jobs:            ${remoteIndiaJobs.length}`);
+  console.log(`  10. Fresher-Friendly (0-2 yrs):     ${fresherJobs.length}`);
+  console.log(`  11. Experienced Roles (3+ yrs):     ${experiencedJobs.length}`);
+  console.log(`  12. Unclear Experience:             ${unclearJobs.length}`);
+  console.log(`  -> INTEGRITY RECONCILIATION:        ${fresherJobs.length} + ${experiencedJobs.length} + ${unclearJobs.length} = ${fresherJobs.length + experiencedJobs.length + unclearJobs.length} / ${totalJobsCount} (Matches: ${fresherJobs.length + experiencedJobs.length + unclearJobs.length === totalJobsCount})`);
 
   console.log('\nSample Discovered Fresher / Early Career Jobs in SQLite:');
   fresherJobs.slice(0, 5).forEach((j, idx) => {
