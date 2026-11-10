@@ -366,4 +366,10 @@ export const api = {
     if (!res.ok) throw new Error('Failed to fetch ATS adapters');
     return res.json();
   },
+
+  async getSourceQuality(): Promise<any> {
+    const res = await fetch('/api/sources/quality');
+    if (!res.ok) throw new Error('Failed to fetch source quality metrics');
+    return res.json();
+  },
 };

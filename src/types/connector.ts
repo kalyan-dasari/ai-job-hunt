@@ -57,3 +57,46 @@ export interface DiscoveryAttempt {
   jobsFound: number;
   attemptedAt: string;
 }
+
+export interface SourceQualityMetrics {
+  totalSources: number;
+  activeSources: number;
+  successfullyFetchedSources: number;
+  failedSources: number;
+  totalJobsDiscovered: number;
+  indiaRelevantJobs: number;
+  fresherFriendlyJobs: number;
+  jobsRequiringExperience: number;
+  unclearExperienceJobs: number;
+  expiredJobs: number;
+  jobsWithWorkingLinks: number;
+  lastSuccessfulDiscovery?: string;
+  locationBreakdown: {
+    hyderabad: number;
+    bengaluru: number;
+    chennai: number;
+    pune: number;
+    mumbai: number;
+    delhiNcr: number;
+    otherIndianCities: number;
+    remoteIndia: number;
+    internationalRemote: number;
+    internationalLocation: number;
+    unknown: number;
+  };
+  sourceStatusBreakdown: {
+    configured: number;
+    active: number;
+    successfullyFetched: number;
+    failed: number;
+    temporarilyUnavailable: number;
+    noCurrentVacancies: number;
+  };
+  recentExclusions: Array<{
+    title: string;
+    company: string;
+    location: string;
+    source: string;
+    reason: string;
+  }>;
+}

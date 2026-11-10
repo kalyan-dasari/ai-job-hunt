@@ -447,6 +447,56 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 5,
+    name: '005_expanded_company_coverage_and_fresher_relevance',
+    up: (db: DatabaseSync) => {
+      try { db.exec("ALTER TABLE jobs ADD COLUMN fresher_status TEXT DEFAULT 'Unclear';"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN location_category TEXT DEFAULT 'India city';"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN target_role_category TEXT;"); } catch {}
+
+      const EXPANDED_COMPANIES = [
+        // Hyderabad Hub
+        { id: 'comp-observeai', name: 'Observe.ai', website_url: 'https://observe.ai', careers_url: 'https://boards.greenhouse.io/observeai', ats_provider: 'greenhouse', ats_slug: 'observeai' },
+        { id: 'comp-zenoti', name: 'Zenoti', website_url: 'https://zenoti.com', careers_url: 'https://boards.greenhouse.io/zenoti', ats_provider: 'greenhouse', ats_slug: 'zenoti' },
+        { id: 'comp-highradius', name: 'HighRadius', website_url: 'https://highradius.com', careers_url: 'https://boards.greenhouse.io/highradius', ats_provider: 'greenhouse', ats_slug: 'highradius' },
+        { id: 'comp-decisions', name: 'Decisions', website_url: 'https://decisions.com', careers_url: 'https://ats.rippling.com/decisions/jobs', ats_provider: 'rippling', ats_slug: 'decisions' },
+        // Bengaluru Startups & High-Growth Tech
+        { id: 'comp-apna', name: 'Apna', website_url: 'https://apna.co', careers_url: 'https://apply.workable.com/apna/', ats_provider: 'workable', ats_slug: 'apna' },
+        { id: 'comp-swiggy', name: 'Swiggy', website_url: 'https://swiggy.com', careers_url: 'https://careers.swiggy.com/', ats_provider: 'smartrecruiters', ats_slug: 'swiggy' },
+        { id: 'comp-razorpay-live', name: 'Razorpay', website_url: 'https://razorpay.com', careers_url: 'https://boards.greenhouse.io/razorpaysoftwareprivatelimited', ats_provider: 'greenhouse', ats_slug: 'razorpaysoftwareprivatelimited' },
+        { id: 'comp-fortanix', name: 'Fortanix', website_url: 'https://fortanix.com', careers_url: 'https://apply.workable.com/fortanix/', ats_provider: 'workable', ats_slug: 'fortanix' },
+        { id: 'comp-signoz', name: 'SigNoz', website_url: 'https://signoz.io', careers_url: 'https://jobs.ashbyhq.com/signoz', ats_provider: 'ashby', ats_slug: 'signoz' },
+        { id: 'comp-slice', name: 'Slice', website_url: 'https://sliceit.com', careers_url: 'https://boards.greenhouse.io/slice', ats_provider: 'greenhouse', ats_slug: 'slice' },
+        { id: 'comp-mercari', name: 'Mercari India', website_url: 'https://mercari.com', careers_url: 'https://apply.workable.com/mercari-india/', ats_provider: 'workable', ats_slug: 'mercari-india' },
+        // Chennai & Pune Tech
+        { id: 'comp-freshworks', name: 'Freshworks', website_url: 'https://freshworks.com', careers_url: 'https://careers.freshworks.com/', ats_provider: 'smartrecruiters', ats_slug: 'Freshworks' },
+        { id: 'comp-mindtickle', name: 'Mindtickle', website_url: 'https://mindtickle.com', careers_url: 'https://jobs.lever.co/mindtickle', ats_provider: 'lever', ats_slug: 'mindtickle' },
+        { id: 'comp-druva', name: 'Druva', website_url: 'https://druva.com', careers_url: 'https://boards.greenhouse.io/druva', ats_provider: 'greenhouse', ats_slug: 'druva' },
+        // India-Eligible & Remote
+        { id: 'comp-tibber', name: 'Tibber', website_url: 'https://tibber.com', careers_url: 'https://jobs.tibber.com/', ats_provider: 'teamtailor', ats_slug: 'tibber' },
+        { id: 'comp-sentry', name: 'Sentry', website_url: 'https://sentry.io', careers_url: 'https://jobs.ashbyhq.com/sentry', ats_provider: 'ashby', ats_slug: 'sentry' },
+      ];
+
+      const now = new Date().toISOString();
+      const insertOrUpdateStmt = db.prepare(`
+        INSERT INTO company_sources (id, name, website_url, careers_url, ats_provider, ats_slug, status, crawl_frequency_hours, jobs_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 6, 0, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          website_url = excluded.website_url,
+          careers_url = excluded.careers_url,
+          ats_provider = excluded.ats_provider,
+          ats_slug = excluded.ats_slug,
+          status = 'active',
+          updated_at = excluded.updated_at
+      `);
+
+      for (const comp of EXPANDED_COMPANIES) {
+        insertOrUpdateStmt.run(comp.id, comp.name, comp.website_url, comp.careers_url, comp.ats_provider, comp.ats_slug, now, now);
+      }
+    },
+  },
 ];
 
 function runMigrations(db: DatabaseSync): void {
@@ -782,6 +832,9 @@ function mapJobFromRow(row: any): Job {
     isDuplicate: intToBool(row.is_duplicate),
     duplicateOfId: row.duplicate_of_id || undefined,
     freshnessStatus: (row.freshness_status as any) || 'Active',
+    fresherStatus: (row.fresher_status as any) || undefined,
+    locationCategory: (row.location_category as any) || undefined,
+    targetRoleCategory: row.target_role_category || undefined,
     expiryDate: row.expiry_date || undefined,
     lastVerifiedAt: row.last_verified_at || row.last_checked || undefined,
   };
@@ -812,7 +865,7 @@ export const jobsRepository = {
         source, source_type, source_job_id, original_url, canonical_url, application_url, date_posted,
         last_checked, is_startup, startup_info, verification_report,
         match_result, is_saved, is_dismissed, is_duplicate, duplicate_of_id,
-        freshness_status, expiry_date, last_verified_at,
+        freshness_status, fresher_status, location_category, target_role_category, expiry_date, last_verified_at,
         created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
@@ -821,7 +874,7 @@ export const jobsRepository = {
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -858,6 +911,9 @@ export const jobsRepository = {
         is_duplicate = excluded.is_duplicate,
         duplicate_of_id = excluded.duplicate_of_id,
         freshness_status = excluded.freshness_status,
+        fresher_status = excluded.fresher_status,
+        location_category = excluded.location_category,
+        target_role_category = excluded.target_role_category,
         expiry_date = excluded.expiry_date,
         last_verified_at = excluded.last_verified_at,
         updated_at = excluded.updated_at
@@ -898,6 +954,9 @@ export const jobsRepository = {
       boolToInt(job.isDuplicate),
       job.duplicateOfId || null,
       job.freshnessStatus || 'Active',
+      job.fresherStatus || 'Unclear',
+      job.locationCategory || 'India city',
+      job.targetRoleCategory || null,
       job.expiryDate || null,
       job.lastVerifiedAt || job.lastChecked || now,
       now,
