@@ -30,6 +30,7 @@ import { jobDiscoveryAgent } from './server/job-sources/agent.ts';
 import { calculateDeterministicMatch } from './server/matching.ts';
 import { careerPageCrawler } from './server/job-sources/discovery/crawler.ts';
 import { getAllAtsAdapters, getAtsAdapter } from './server/job-sources/ats/index.ts';
+import { classifyDetailedLocation } from './server/job-sources/normalizer.ts';
 
 dotenv.config();
 

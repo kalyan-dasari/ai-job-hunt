@@ -13,6 +13,7 @@ import {
 } from '../src/types/application';
 import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt } from '../src/types/connector';
 import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
+import { normalizeExperienceLevel, classifyLocation } from './job-sources/normalizer.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
 let dbInstance: DatabaseSync | null = null;
@@ -494,6 +495,54 @@ const MIGRATIONS = [
 
       for (const comp of EXPANDED_COMPANIES) {
         insertOrUpdateStmt.run(comp.id, comp.name, comp.website_url, comp.careers_url, comp.ats_provider, comp.ats_slug, now, now);
+      }
+    },
+  },
+  {
+    version: 6,
+    name: '006_data_integrity_and_mutually_exclusive_experience',
+    up: (db: DatabaseSync) => {
+      const now = new Date().toISOString();
+      const insertCompanyStmt = db.prepare(`
+        INSERT INTO company_sources (id, name, website_url, careers_url, ats_provider, ats_slug, status, crawl_frequency_hours, jobs_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 6, 0, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          website_url = excluded.website_url,
+          careers_url = excluded.careers_url,
+          ats_provider = excluded.ats_provider,
+          ats_slug = excluded.ats_slug,
+          status = 'active',
+          updated_at = excluded.updated_at
+      `);
+      insertCompanyStmt.run('comp-razorpay-live', 'Razorpay', 'https://razorpay.com', 'https://boards.greenhouse.io/razorpaysoftwareprivatelimited', 'greenhouse', 'razorpaysoftwareprivatelimited', now, now);
+      insertCompanyStmt.run('comp-razorpay', 'Razorpay', 'https://razorpay.com', 'https://razorpay.com/jobs/', 'greenhouse', 'razorpay', now, now);
+
+      // Backfill and synchronize all existing job records to mutually exclusive experience & strict location
+      const rows = db.prepare('SELECT id, title, company, location, work_arrangement, country, description, experience_level, min_exp_years, max_exp_years FROM jobs').all() as any[];
+
+      const updateJobStmt = db.prepare(`
+        UPDATE jobs
+        SET experience_level = ?,
+            min_exp_years = ?,
+            max_exp_years = ?,
+            fresher_status = ?,
+            location_category = ?
+        WHERE id = ?
+      `);
+
+      for (const row of rows) {
+        const norm = normalizeExperienceLevel(row.experience_level, row.min_exp_years, row.title, row.description);
+        const locNorm = classifyLocation(row.location, row.description);
+
+        updateJobStmt.run(
+          norm.level,
+          norm.minYears ?? null,
+          norm.maxYears ?? null,
+          norm.fresherStatus,
+          locNorm.category,
+          row.id
+        );
       }
     },
   },
