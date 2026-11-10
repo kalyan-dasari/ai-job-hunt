@@ -42,3 +42,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Built-in HTTP security headers, sliding-window rate limiting, and input validation.
   - Graceful shutdown handling (`SIGINT`, `SIGTERM`) with clean SQLite and scheduler teardown.
   - Root `/health` and `/api/health` endpoints.
+
