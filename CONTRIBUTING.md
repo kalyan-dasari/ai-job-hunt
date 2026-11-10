@@ -24,8 +24,8 @@ Thank you for your interest in contributing to **JobPilot AI**! We welcome bug r
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/jobpilot-ai.git
-cd jobpilot-ai
+git clone https://github.com/kalyan-dasari/ai-job-hunt.git
+cd ai-job-hunt
 
 # 2. Install dependencies
 npm install

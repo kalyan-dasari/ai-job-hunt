@@ -1,7 +1,13 @@
 {
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
+  "name": "ai-job-hunt",
+  "version": "1.0.0",
+  "description": "JobPilot AI — Web-First Intelligent Job Discovery & Application Engine",
+  "homepage": "https://github.com/kalyan-dasari/ai-job-hunt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kalyan-dasari/ai-job-hunt.git"
+  },
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

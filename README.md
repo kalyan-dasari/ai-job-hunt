@@ -1,6 +1,6 @@
 # JobPilot AI v1.0 — Web-First Intelligent Job Discovery & Application Engine
 
-[![CI Pipeline](https://github.com/your-username/jobpilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/jobpilot-ai/actions/workflows/ci.yml)
+[![CI Pipeline](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml/badge.svg)](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
@@ -46,8 +46,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/jobpilot-ai.git
-cd jobpilot-ai
+git clone https://github.com/kalyan-dasari/ai-job-hunt.git
+cd ai-job-hunt
 
 # Install dependencies
 npm install
