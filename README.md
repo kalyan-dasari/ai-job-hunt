@@ -1,229 +1,192 @@
-# JobPilot AI — Intelligent Job Hunting & Verification Engine
+# JobPilot AI v1.0 — Web-First Intelligent Job Discovery & Application Engine
 
-JobPilot AI is a full-stack, production-ready web application designed to help job seekers discover legitimate career opportunities, verify employer authenticity, match resumes against job requisitions, prepare tailored application materials, and track employer responses end-to-end.
+[![CI Pipeline](https://github.com/your-username/jobpilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/jobpilot-ai/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
+[![Operating Cost](https://img.shields.io/badge/%E2%82%B90-Operating%20Cost-success.svg)](#zero-cost-philosophy)
 
----
-
-## 🚀 Key Highlights & Capabilities
-
-- **Web-First Job Discovery Engine (Dossier-Inspired, ₹0 Cost)**: Multi-source job discovery engine finding publicly accessible job vacancies across official company career boards, 11 public ATS platforms, and schema.org JobPosting feeds. **Zero paid API requirement and ₹0 operating cost**.
-- **11 Public ATS Adapters**: Native, key-less public integrations for **Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio, Breezy HR, Teamtailor, Rippling, and Workday**.
-- **Indian Tech Seed Discovery System**: Pre-seeded with 16 top Indian technology companies (Razorpay, Postman, CRED, Hasura, Urban Company, BrowserStack, MoEngage, Groww, Zepto, CleverTap, Shiprocket, Yellow.ai, HackerEarth, InMobi, UrbanPiper, Zerodha) with auto-crawling, ATS auto-detection, and manual company addition.
-- **Central JobDiscoveryAgent**: Automatically parses the candidate's active profile, extracts preferred roles and skills, creates focused India queries, crawls due company career boards & public ATS feeds, filters by India-first relevancy, deduplicates across channels, and computes 6D match scores.
-- **Monthly API Quota Guards & 24-Hour Query Caching**: Durably persisted in SQLite (`api_usage` and `query_cache` tables). Tracks monthly limits (200/month JSearch, 250/month Adzuna) and suppresses redundant external requests with 24-hour TTL caching.
-- **Intelligent Dossier Match Evaluation**: Comprehensive 6-dimensional scoring enhanced with:
-  - **Fresher Eligibility Badge**: Instantly identifies entry-level/fresher roles (`0 yrs experience`).
-  - **Natural Language Experience Explanation**: Explains why the candidate's years align or diverge from requisition requirements.
-  - **Location Compatibility Note**: Highlights compatibility with candidate-preferred Indian hubs (Bengaluru, Hyderabad, Pune, Chennai, Mumbai, Delhi NCR) or India-eligible remote arrangements.
-  - **Missing Skills & Strong Matches**: Clear color-coded badges to guide candidate preparation.
-- **Authenticity & Scam Detection**: Transparent multi-point audits checking company domains, recruiting patterns, absence of advance fees/charges, and legitimate ATS destinations to protect job seekers from employment scams.
-- **Guided Application Assistant**: 4-step streamlined preparation workflow generating grounded tailored cover letters, recruiter pitches, custom resume bullet points, and interview screening checklists.
-- **Interactive Kanban & List Tracker**: Track job applications across their complete lifecycle (`Saved`, `Preparing`, `Ready to Apply`, `Applied`, `Assessment`, `Interview`, `Offer`, `Rejected`).
-- **Recruiter Response Inbox & Parser**: Ingest and analyze recruiter communications to automatically infer interview invites, assessments, offers, or rejections, recommending 1-click application status updates.
-- **Startup Jobs Discovery**: Dedicated portal filtering by funding stage (Pre-seed, Seed, Series A, Series B+, Bootstrapped), tech stack, paid internships, and equity disclosures.
-- **Resume Extraction & Profile Manager**: Upload PDF or text resumes to automatically extract structured contact details, skills, experience, and education with full editing capabilities.
-- **Data Ingestion & Deduplication**: Upload custom CSV/JSON datasets with automatic company, title, and URL deduplication.
-- **Export & Portability**: 1-click export of complete candidate profile, tracked applications, and job listings as JSON or CSV.
+**JobPilot AI** is a self-hostable, open-source job discovery and application management engine built for engineers and job seekers. Inspired by Dossier's clean, minimalist architecture, JobPilot AI automatically aggregates verified job vacancies across the public internet, deduplicates them, scores them against candidate profiles, prepares tailored application materials, and tracks applications through employer offers.
 
 ---
 
-## 🏗️ System Architecture
+## 💡 Core Philosophy: ₹0 Operating Cost
+
+- **Zero Paid APIs**: Discovers jobs directly through public career portals, 11 public Applicant Tracking Systems (ATS), and Schema.org `JobPosting` microdata feeds. No RapidAPI subscriptions, JSearch, or Adzuna paid accounts required.
+- **Privacy-Preserving & Self-Hosted**: 100% of your data — candidate resume, notes, application history, and preferences — stays in your local SQLite database. No third-party tracking or telemetry.
+- **Truthful & Authentic**: JobPilot AI never invents salaries, fabricates mock vacancies, or weakens fresher requirements. Undisclosed salary is always reported truthfully as undisclosed.
+- **Deterministic Resilience**: Functions 100% locally with rule-based heuristics and local PDF parsing even when no LLM API key is configured.
+
+---
+
+## ⚡ Quickstart
+
+### Prerequisites
+- **Node.js**: `v22.0.0` or higher (utilizes native `node:sqlite`)
+- **npm**: `v10.0.0` or higher
+
+### 1. Local Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/jobpilot-ai.git
+cd jobpilot-ai
+
+# Install dependencies
+npm install
+
+# Copy environment template
+cp .env.example .env
+
+# Start the full-stack development server
+npm run dev
+```
+
+Visit **`http://localhost:3000`** in your browser.
+
+---
+
+### 2. Docker Setup (Single Command)
+
+JobPilot AI includes a multi-stage `Dockerfile` and `docker-compose.yml` for turnkey containerized deployment:
+
+```bash
+# Build and run container with persistent volume
+docker compose up -d
+
+# Check service logs
+docker compose logs -f
+
+# Verify container healthcheck
+curl http://localhost:3000/health
+```
+
+The container mounts `./data` to `/app/data` to ensure all SQLite records, migrations, and resume versions persist across restarts.
+
+---
+
+## 🌟 Key Features
+
+### 1. Web-First Public Discovery Engine
+- **11 Public ATS Adapters**: Built-in, key-less adapters for:
+  - `Greenhouse`, `Lever`, `Ashby`, `Workable`, `SmartRecruiters`, `Recruitee`, `Personio`, `Breezy HR`, `Teamtailor`, `Rippling`, and `Workday`.
+- **32 Pre-Configured Indian Tech Sources**: Pre-seeded with tech employers across **Bengaluru, Hyderabad, Chennai, and Pune** (including *Razorpay, Postman, CRED, Hasura, Urban Company, BrowserStack, Swiggy, Freshworks, Zenoti, HighRadius, Decisions, SigNoz, Slice, Mindtickle, Druva, Zerodha*, and more).
+- **Automated Career Page Detector**: Crawls official company websites to auto-detect ATS providers, extract JSON-LD structured data, and parse RSS/Atom feeds.
+- **Rate-Limited Background Scheduler**: Configurable automated discovery runs with exponential backoff and `robots.txt` compliance.
+
+### 2. SQLite Persistence & Integrity
+- **Native `node:sqlite` Storage**: Zero external database dependencies; runs on Node's native synchronous SQLite engine.
+- **Full Migration Lifecycle**: 7 sequential migrations managing profiles, jobs, applications, and source health.
+- **Mutually Exclusive Categorization**:
+  - **Fresher-Friendly**: Explicitly 0–2 years experience, trainee, intern, or entry-level.
+  - **Experienced**: Explicitly 3+ years experience or senior requirements.
+  - **Unclear**: Non-disclosed or ambiguous experience requirements.
+- **India-First Location Normalization**: Reconciled into 11 regional categories (Bengaluru, Hyderabad, Pune, Chennai, Mumbai, Delhi NCR, Other Indian Cities, Remote India, International, International Remote, and Unknown).
+
+### 3. Intelligent 6-Dimensional Matching
+- Evaluates **Technical Skills, Role Fit, Experience Level, Fresher Eligibility, Location & Remote Preference, and Published Salary**.
+- **Truthful Compensation Evaluation**: Evaluates fit against candidate expectations when disclosed; never fabricates numbers when undisclosed.
+- **Strict Fresher Protection**: Senior and staff positions are heavily penalized for fresher candidates, ensuring entry-level opportunities always rank first.
+
+### 4. Application Assistant & Lifecycle Tracker
+- **Multi-Version Resume Manager**: Upload PDF resumes with client-side text extraction via `pdf-parse`. Maintain multiple versions and designate an active resume.
+- **Job-Specific Resume Tailoring**: Identifies missing keywords and suggests high-impact bullet point enhancements.
+- **Grounded Cover Letter Generator**: Creates tailored pitches referencing real candidate achievements and specific job responsibilities.
+- **Application Tracker**: Kanban and list views across 8 pipeline stages (`Preparing`, `Ready to Apply`, `Applied`, `Assessment`, `Interview`, `Offer`, `Rejected`, `Withdrawn`).
+- **Original Source Workflow**: Direct 1-click links to the authentic employer portal, with manual confirmation before marking as applied.
+
+### 5. Settings, Backups & Portability
+- **Customizable Preferences**: Configure target roles, preferred tech hubs, work arrangements (Remote/Hybrid/Onsite), employment types, experience bounds, and industry focus.
+- **Background Scheduler Controls**: Toggle automated crawls and adjust execution frequency (15m, 30m, 1h, 2h, 6h, 12h, 24h).
+- **1-Click Full Backup**: Download your entire workspace data as structured **JSON** or spreadsheet-ready **CSV**.
+
+---
+
+## 🏛️ Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    JobPilot AI (React SPA)                  │
-│  - Dashboard & KPIs          - AI Application Assistant     │
-│  - Multi-Source Discovery    - Response Inbox & Parser      │
-│  - Startup Jobs Ecosystem    - Resume & Profile Manager     │
-│  - Kanban Application Tracker- Ingestion & Deduplication    │
+│                 JobPilot AI (React 19 SPA)                  │
+│  - Dashboard & KPIs           - AI Application Assistant    │
+│  - Multi-Source Discovery     - Resume & Profile Manager    │
+│  - Kanban Application Tracker - Settings & Export Controls  │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ Client-Server Bridge
+                               │ HTTP / JSON REST APIs
 ┌──────────────────────────────▼──────────────────────────────┐
-│                  Express Server (server.ts)                 │
-│  - Job Normalization & Deduplication Pipeline               │
-│  - Endpoints for Jobs, Applications & Candidate Profile     │
-│  - Source Connectors (Naukri, LinkedIn, Internshala, etc.)  │
-│  - Secure File & Resume Processor                           │
-│  - Data Export Engine (JSON / CSV)                          │
+│             Node.js / Express Backend (server.ts)           │
+│  - Security Headers (CSP, X-Frame, X-XSS) & Rate Limiting   │
+│  - SQLite Database Sync (WAL Mode, Foreign Keys)            │
+│  - Job Discovery Agent & Ingestion Scheduler                │
+│  - 6D Intelligent Matching & Scoring Engine                 │
+│  - 11 Public ATS Adapters + Career Page Web Crawler         │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ AI Intelligence Engine
+                               │ Direct HTTPS / No Middleman
 ┌──────────────────────────────▼──────────────────────────────┐
-│             Google Gemini (gemini-3.8-flash)                │
-│  - Resume Document & PDF Extraction                         │
-│  - 6-Dimensional Semantic Resume Match Scoring              │
-│  - Scam Detection & Authenticity Auditing                   │
-│  - Tailored Cover Letter & Recruiter Pitch Generation       │
-│  - Recruiter Email Parsing & Lifecycle State Inference     │
+│                    Public Career Portals                    │
+│  - Greenhouse, Lever, Ashby, Workable, SmartRecruiters      │
+│  - Recruitee, Personio, Breezy, Teamtailor, Rippling        │
+│  - Schema.org JobPosting Microdata & RSS Feeds              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 💻 Tech Stack
+## ⚙️ Environment Variables
 
-| Layer | Technologies |
-|---|---|
-| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Lucide Icons, Motion |
-| **Build & Tooling** | Vite, TSX, PostCSS, Autoprefixer |
-| **Backend & Server** | Node.js, Express, TypeScript |
-| **Intelligence** | Google Gemini 3.8 Flash (`@google/genai`) with offline fallback support |
-| **Storage & Data** | Persistent SQLite (`data/jobpilot.db`) with WAL mode, foreign keys & JSON/CSV exports |
+Configuration is loaded from `.env` in the project root:
 
----
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `3000` | HTTP port for the web server |
+| `NODE_ENV` | `production` | Execution environment (`production` or `development`) |
+| `DATABASE_PATH` | `./data/jobpilot.db` | Filesystem location for persistent SQLite database |
+| `GEMINI_API_KEY` | *(Optional)* | Google Gemini key for semantic resume parsing & AI generation |
 
-## 📁 Project Structure
-
-```
-ai-job-hunt/
-├── data/                          # SQLite persistent database directory
-│   └── jobpilot.db               # Local SQLite database (git-ignored)
-├── server/
-│   ├── database.ts               # SQLite connection, migrations (001, 002) & typed repositories
-│   ├── matching.ts               # 6D deterministic match evaluator
-│   └── job-sources/              # Phase 3 modular ingestion architecture
-│       ├── types.ts              # Common adapter contracts, raw records & runs
-│       ├── normalizer.ts         # Standard schema mapper & URL sanitizer
-│       ├── deduplicator.ts       # Cross-source deduplication & discipline guardrails
-│       ├── registry.ts           # Central source adapter registry & tester
-│       ├── scheduler.ts          # Ingestion service, concurrency lock & cron scheduler
-│       └── sources/              # Specialized source connectors
-│           ├── base-adapter.ts   # Abstract adapter with exponential retry backoff
-│           ├── career-pages.ts   # Active corporate career & syndication feed
-│           ├── naukri-adapter.ts # Naukri Enterprise RMS Partner adapter
-│           ├── linkedin-adapter.ts # LinkedIn Talent Solutions / RSC adapter
-│           ├── internshala-adapter.ts # Internshala Recruiter feed adapter
-│           └── foundit-adapter.ts # Foundit (Monster) Recruiter API adapter
-├── src/
-│   ├── api/
-│   │   └── client.ts              # Frontend client for backend services
-│   ├── components/
-│   │   ├── ApplicationAssistantModal.tsx  # 4-step tailored prep workflow
-│   │   ├── ApplicationTrackerView.tsx    # Kanban & List application tracking
-│   │   ├── DashboardView.tsx             # Analytics, quick actions, KPI cards
-│   │   ├── JobDetailsModal.tsx           # Requisition view & audit breakdown
-│   │   ├── JobDiscoveryView.tsx          # Multi-filter search & match scoring
-│   │   ├── Navbar.tsx                    # Navigation & notifications bar
-│   │   ├── NotificationsModal.tsx        # System notifications & alerts
-│   │   ├── ResponseInboxView.tsx         # Recruiter email analyzer & logger
-│   │   ├── ResumeProfileView.tsx         # Resume parsing & profile editor
-│   │   ├── SourcesIngestionView.tsx      # CSV/JSON ingestion & deduplication
-│   │   └── StartupJobsView.tsx           # Curated startup jobs directory
-│   ├── types/                     # TypeScript type definitions
-│   │   ├── application.ts
-│   │   ├── candidate.ts
-│   │   ├── connector.ts
-│   │   └── job.ts
-│   ├── App.tsx                    # Main app layout and routing
-│   ├── index.css                  # Global styles & Tailwind entry
-│   └── main.tsx                   # React root mount
-├── server.ts                      # Express backend & AI processing pipeline
-├── test_inprocess.ts              # 14-test in-process SQLite persistence regression suite
-├── test_process_restart.ts        # Critical process restart lifecycle test
-├── package.json                   # Dependencies & build scripts
-├── tsconfig.json                  # TypeScript configuration
-└── vite.config.ts                 # Vite bundler configuration
-```
+*Note: JobPilot AI functions completely deterministically without `GEMINI_API_KEY`.*
 
 ---
 
-## 🛠️ Setup & Running Locally
+## 🧪 Testing & Verification
 
-### Prerequisites
-- **Node.js**: v18.0.0 or higher
-- **npm** (comes with Node.js) or **pnpm**
+JobPilot AI includes an isolated test suite verifying persistence, process restarts, public discovery, and security:
 
----
-
-### Step 1: Install Dependencies
-Before running the application, install the project dependencies (this installs `tsx`, Vite, React 19, Express, and required types):
 ```bash
-npm install
-```
+# Type check TypeScript codebase
+npm run lint
 
-> **Note for Windows users**: If you previously saw `'tsx' is not recognized as an internal or external command`, running `npm install` ensures `tsx` is installed inside `node_modules/.bin`.
+# Run in-process SQLite persistence suite (14 tests)
+npm test
 
----
+# Run process restart test (verifies cross-process DB survival)
+npm run test:restart
 
-### Step 2: Configure Environment
-Create your `.env` configuration file from the template:
+# Run web-first public discovery test suite (10 tests)
+npm run test:public
 
-**On Linux / macOS / Git Bash:**
-```bash
-cp .env.example .env
-```
-
-**On Windows (PowerShell):**
-```powershell
-Copy-Item .env.example .env
-```
-
-*(Optional)* Add your Google Gemini API Key in `.env` if you'd like to enable live AI parsing, 6D resume matching, and tailored pitch generation. The application includes built-in deterministic fallbacks if running without an API key.
-
----
-
-### Step 3: Start Development Server
-Launch the full-stack development server:
-```bash
-npm run dev
-```
-
-This starts the unified Express backend and Vite frontend with hot-module reloading (HMR).
-Once started, open your browser and navigate to:
-```
-http://localhost:3000
-```
-
----
-
-### Step 4: Build & Run in Production (Optional)
-To test or deploy the production build:
-```bash
-# 1. Compile frontend assets into /dist
+# Production frontend bundle build
 npm run build
-
-# 2. Launch production server
-npm start
 ```
 
 ---
 
-### 💡 Common Commands & Scripts
+## 🔒 Security & Privacy
 
-| Command | Description |
-|---|---|
-| `npm install` | Installs all required dependencies |
-| `npm run dev` | Runs the full-stack app in development mode at `http://localhost:3000` |
-| `npm run build` | Compiles the production bundle via Vite into `dist/` |
-| `npm start` | Runs the production Express server serving pre-built assets |
-| `npm run lint` | Runs TypeScript type checking without emitting files |
-| `npm test` | Runs the 14-test SQLite persistence regression suite |
-| `npm run test:restart` | Runs the critical process restart lifecycle persistence test |
-| `npm run test:discovery` | Runs the 17-test Phase 3 real discovery & deduplication engine suite |
-| `npm run test:dossier` | Runs the 8-test Dossier architecture discovery & quota suite |
-| `npm run test:public` | Runs the 10-test Web-First public discovery & ATS suite (100% pass) |
-| `npm run test:live` | Runs the live integration test across real public ATS endpoints |
+- **Input Validation**: Strict file type (`application/pdf`, `text/plain`) and size checks (max 10MB) prevent denial of service and memory overflow.
+- **SQL Injection Prevention**: All queries execute via SQLite prepared statements.
+- **Built-in Rate Limiting**: In-memory sliding window rate limiter protects endpoints against request floods.
+- **Standard Security Headers**: Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and strict `Content-Security-Policy`.
+- **Zero Scraping of Authenticated Walls**: Complies with terms of service; does not bypass logins or scrape protected networks like LinkedIn or Naukri.
 
 ---
 
-### ❓ Troubleshooting
+## ⚠️ Limitations & Disclaimers
 
-- **`'tsx' is not recognized`**:
-  Make sure you ran `npm install` in the project root first. If running outside `npm scripts`, you can use `npx tsx server.ts`.
-- **Port 3000 already in use**:
-  Set a custom port in `.env` (e.g., `PORT=3001`), or pass `PORT=3001 npm run dev`.
-
----
-
-## 🛡️ Authenticity Verification & Safety Standards
-
-JobPilot AI enforces strict verification standards to protect candidates from malicious postings:
-- **Corporate Domain Verification**: Validates employer domain legitimacy and cross-references public contact records.
-- **No-Fee Guarantee**: Detects advance fee solicitations, "mandatory training charges", and paid assessment scams.
-- **Verified ATS Redirects**: Confirms that application links route to trusted applicant tracking systems (e.g., Workday, Greenhouse, Lever, Ashby, SmartRecruiters).
-- **Communication Audits**: Flags discrepancies between recruiter email domains and official company domains.
+1. **Employer Portal Changes**: Public career page HTML and ATS URL structures may change over time, requiring periodic adapter updates.
+2. **Third-Party Rate Limits**: Some company websites may implement temporary rate limits if polled too aggressively. Use the built-in scheduler to space out discovery runs.
+3. **Application Submissions**: JobPilot AI **does not** automatically submit applications to prevent candidate account bans and spam. The candidate is always directed to the employer's official page to review and submit directly.
 
 ---
 
-## 📄 License & Attribution
+## 📄 License
 
-This project is licensed under the MIT License. Built with modern full-stack TypeScript and React.
+JobPilot AI is licensed under the [MIT License](LICENSE).
