@@ -1,17 +1,82 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+
+// Configure isolated test database before importing server/database
+const testDbPath = path.resolve(process.cwd(), 'data', 'test_security_suite.db');
+process.env.DATABASE_PATH = testDbPath;
+process.env.NODE_ENV = 'test';
+
+[testDbPath, `${testDbPath}-wal`, `${testDbPath}-shm`].forEach((p) => {
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+});
+
 import { app } from './server.ts';
-import { Server } from 'http';
+import { closeDatabase, initDatabase } from './server/database.ts';
+
+// In-process API caller to test security headers, rate limits, and routes without raw TCP sockets
+function callApi(method: string, url: string, body?: any, customHeaders: Record<string, string> = {}): Promise<{ status: number; headers: Record<string, string>; body: any }> {
+  return new Promise((resolve, reject) => {
+    const bodyStr = body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : '';
+    const req: any = Readable.from(bodyStr ? [Buffer.from(bodyStr)] : []);
+    req.method = method;
+    req.url = url;
+    req.headers = {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(bodyStr).toString(),
+      ...customHeaders,
+    };
+    req.connection = { remoteAddress: '127.0.0.1' };
+    req.socket = { remoteAddress: '127.0.0.1' };
+
+    let resBody = '';
+    const headersMap: Record<string, string> = {};
+
+    const res: any = {
+      statusCode: 200,
+      headers: headersMap,
+      setHeader(name: string, value: any) {
+        headersMap[name.toLowerCase()] = String(value);
+      },
+      getHeader(name: string) {
+        return headersMap[name.toLowerCase()];
+      },
+      status(code: number) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data: any) {
+        resBody = JSON.stringify(data);
+        this.end();
+      },
+      send(data: any) {
+        resBody = typeof data === 'object' ? JSON.stringify(data) : String(data);
+        this.end();
+      },
+      end(chunk?: any) {
+        if (chunk) resBody += chunk;
+        try {
+          resolve({ status: this.statusCode, headers: headersMap, body: JSON.parse(resBody) });
+        } catch {
+          resolve({ status: this.statusCode, headers: headersMap, body: resBody });
+        }
+      },
+    };
+
+    (app as any).handle(req, res, (err: any) => {
+      if (err) reject(err);
+      else resolve({ status: res.statusCode, headers: headersMap, body: resBody });
+    });
+  });
+}
 
 async function runSecurityAuditTests() {
   console.log('========================================================================');
   console.log('>>> JOBPILOT AI v1.0 — SECURITY, RATE LIMITING & SCHEDULER TEST SUITE  <<<');
   console.log('========================================================================\n');
 
-  const port = 3456;
-  const server: Server = await new Promise((resolve) => {
-    const s = app.listen(port, () => resolve(s));
-  });
+  initDatabase(testDbPath);
 
-  const baseUrl = `http://127.0.0.1:${port}`;
   let passedCount = 0;
   let totalCount = 0;
 
@@ -31,59 +96,54 @@ async function runSecurityAuditTests() {
     // Test 1: Security Headers on HTTP responses
     // -------------------------------------------------------------
     console.log('Test 1: Verification of HTTP Security Headers');
-    const headRes = await fetch(`${baseUrl}/health`);
+    const headRes = await callApi('GET', '/health');
     assert(
       'X-Content-Type-Options is nosniff',
-      headRes.headers.get('x-content-type-options') === 'nosniff'
+      headRes.headers['x-content-type-options'] === 'nosniff'
     );
     assert(
       'X-Frame-Options is SAMEORIGIN',
-      headRes.headers.get('x-frame-options') === 'SAMEORIGIN'
+      headRes.headers['x-frame-options'] === 'SAMEORIGIN'
     );
     assert(
       'Content-Security-Policy header is present',
-      !!headRes.headers.get('content-security-policy')
+      !!headRes.headers['content-security-policy']
     );
     assert(
       'X-XSS-Protection header is present',
-      headRes.headers.get('x-xss-protection') === '1; mode=block'
+      headRes.headers['x-xss-protection'] === '1; mode=block'
     );
 
     // -------------------------------------------------------------
     // Test 2: Root and API Health check endpoints
     // -------------------------------------------------------------
     console.log('\nTest 2: Health Check Endpoints (/health & /api/health)');
-    const rootHealth = await fetch(`${baseUrl}/health`).then((r) => r.json());
-    const apiHealth = await fetch(`${baseUrl}/api/health`).then((r) => r.json());
+    const rootHealth = await callApi('GET', '/health');
+    const apiHealth = await callApi('GET', '/api/health');
 
     assert(
-      'Root /health returns healthy status',
-      rootHealth.status === 'healthy' && rootHealth.service === 'JobPilot AI Server'
+      'Root /health returns HTTP 200 with healthy status',
+      rootHealth.status === 200 && rootHealth.body.status === 'healthy' && rootHealth.body.service === 'JobPilot AI Server'
     );
     assert(
-      '/api/health returns healthy status and SQLite database info',
-      apiHealth.status === 'healthy' && apiHealth.database === 'SQLite'
+      '/api/health returns HTTP 200 with SQLite database info',
+      apiHealth.status === 200 && apiHealth.body.status === 'healthy' && apiHealth.body.database === 'SQLite'
     );
 
     // -------------------------------------------------------------
     // Test 3: Scheduler Configuration Endpoints
     // -------------------------------------------------------------
     console.log('\nTest 3: Scheduler Configuration API (/api/scheduler)');
-    const getSchedRes = await fetch(`${baseUrl}/api/scheduler`).then((r) => r.json());
+    const getSchedRes = await callApi('GET', '/api/scheduler');
     assert(
       'GET /api/scheduler returns active configuration',
-      typeof getSchedRes.enabled === 'boolean' && typeof getSchedRes.intervalMinutes === 'number'
+      getSchedRes.status === 200 && typeof getSchedRes.body.enabled === 'boolean' && typeof getSchedRes.body.intervalMinutes === 'number'
     );
 
-    const postSchedRes = await fetch(`${baseUrl}/api/scheduler/config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true, intervalMinutes: 120 }),
-    }).then((r) => r.json());
-
+    const postSchedRes = await callApi('POST', '/api/scheduler/config', { enabled: true, intervalMinutes: 120 });
     assert(
       'POST /api/scheduler/config updates interval',
-      postSchedRes.config.intervalMinutes === 120
+      postSchedRes.status === 200 && postSchedRes.body.config.intervalMinutes === 120
     );
 
     // -------------------------------------------------------------
@@ -91,14 +151,10 @@ async function runSecurityAuditTests() {
     // -------------------------------------------------------------
     console.log('\nTest 4: Resume File Upload Size Guard');
     const oversizedBase64 = 'A'.repeat(15 * 1024 * 1024); // 15MB base64
-    const uploadRes = await fetch(`${baseUrl}/api/candidate/upload-resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileName: 'huge_exploit.pdf',
-        mimeType: 'application/pdf',
-        fileBase64: oversizedBase64,
-      }),
+    const uploadRes = await callApi('POST', '/api/candidate/upload-resume', {
+      fileName: 'huge_exploit.pdf',
+      mimeType: 'application/pdf',
+      fileBase64: oversizedBase64,
     });
 
     assert(
@@ -110,14 +166,10 @@ async function runSecurityAuditTests() {
     // Test 5: Unsupported MIME Type Rejection
     // -------------------------------------------------------------
     console.log('\nTest 5: Unsupported MIME Type Validation');
-    const badMimeRes = await fetch(`${baseUrl}/api/candidate/upload-resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileName: 'script.exe',
-        mimeType: 'application/x-msdownload',
-        fileBase64: 'TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAA=',
-      }),
+    const badMimeRes = await callApi('POST', '/api/candidate/upload-resume', {
+      fileName: 'script.exe',
+      mimeType: 'application/x-msdownload',
+      fileBase64: 'TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAA=',
     });
 
     assert(
@@ -126,24 +178,29 @@ async function runSecurityAuditTests() {
     );
 
     // -------------------------------------------------------------
-    // Test 6: Rate Limiting Headers & Throttling
+    // Test 6: Rate Limiting Headers on Protected Endpoints
     // -------------------------------------------------------------
     console.log('\nTest 6: Rate Limiter Headers on Protected Endpoints');
-    const apiRes = await fetch(`${baseUrl}/api/candidate`);
+    const apiRes = await callApi('GET', '/api/candidate');
     assert(
       'Rate limit headers are present on /api/* requests',
-      apiRes.headers.has('x-ratelimit-limit') && apiRes.headers.has('x-ratelimit-remaining')
+      apiRes.headers['x-ratelimit-limit'] === '180' && !!apiRes.headers['x-ratelimit-remaining']
     );
 
     console.log('\n========================================================================');
     console.log(`>>> SECURITY & SCHEDULER AUDIT PASSED: ${passedCount}/${totalCount} TESTS (100%) <<<`);
     console.log('========================================================================\n');
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    closeDatabase();
+    [testDbPath, `${testDbPath}-wal`, `${testDbPath}-shm`].forEach((p) => {
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+    });
   }
 }
 
-runSecurityAuditTests().catch((err) => {
+runSecurityAuditTests().then(() => {
+  process.exit(0);
+}).catch((err) => {
   console.error('Security test failed with error:', err);
   process.exit(1);
 });
