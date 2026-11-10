@@ -97,3 +97,4 @@ npm run build
 4. Push your branch to GitHub and open a Pull Request using the provided PR template.
 
 Thank you for helping build an open, accessible, and ethical job search engine!
+
