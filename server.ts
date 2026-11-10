@@ -1166,10 +1166,20 @@ app.get('/api/sources/quality', (_req: Request, res: Response) => {
   try {
     const allCompanies = companySourcesRepository.getAll();
     const activeCompanies = allCompanies.filter((c) => c.status === 'active');
+    
+    // Detailed source health separation
     const successfulCompanies = allCompanies.filter(
-      (c) => c.lastSuccessfulCrawlAt && (!c.lastError || c.lastSuccessfulCrawlAt >= (c.lastCrawlAt || ''))
+      (c) => c.lastSuccessfulCrawlAt && (!c.lastError || c.lastSuccessfulCrawlAt >= (c.lastCrawlAt || '')) && c.jobsCount > 0
     );
-    const failedCompanies = allCompanies.filter((c) => !!c.lastError);
+    const noVacanciesCompanies = allCompanies.filter(
+      (c) => c.lastSuccessfulCrawlAt && (!c.lastError || c.lastSuccessfulCrawlAt >= (c.lastCrawlAt || '')) && c.jobsCount === 0
+    );
+    const failedCompanies = allCompanies.filter(
+      (c) => !!c.lastError && (!c.lastSuccessfulCrawlAt || (c.lastCrawlAt || '') >= c.lastSuccessfulCrawlAt)
+    );
+    const tempUnavailable = failedCompanies.filter(
+      (c) => c.lastError && (c.lastError.includes('timeout') || c.lastError.includes('fetch failed') || c.lastError.includes('ETIMEDOUT') || c.lastError.includes('rate limit'))
+    );
 
     const allJobs = jobsRepository.getAllJobs();
     const indiaJobs = allJobs.filter(
@@ -1180,29 +1190,44 @@ app.get('/api/sources/quality', (_req: Request, res: Response) => {
         j.country === 'India' ||
         (j.location && j.location.toLowerCase().includes('india'))
     );
-    const fresherJobs = allJobs.filter(
-      (j) =>
-        j.fresherStatus === 'Fresher' ||
-        j.experienceLevel === 'Intern' ||
-        j.experienceLevel === 'Entry' ||
-        (j.minExpYears !== undefined && j.minExpYears <= 1) ||
-        j.matchResult?.isFresherEligible
-    );
-    const experiencedJobs = allJobs.filter(
-      (j) =>
-        j.fresherStatus === 'Experienced' ||
-        j.experienceLevel === 'Senior' ||
-        j.experienceLevel === 'Lead' ||
-        (j.minExpYears !== undefined && j.minExpYears >= 3)
-    );
-    const unclearJobs = allJobs.filter(
-      (j) =>
-        j.fresherStatus === 'Unclear' ||
-        (!j.fresherStatus &&
-          j.minExpYears === undefined &&
-          !['Intern', 'Entry', 'Senior', 'Lead'].includes(j.experienceLevel))
-    );
+
+    // Mutually exclusive experience classification (Fresher + Experienced + Unclear === Total)
+    const fresherJobs = allJobs.filter((j) => j.fresherStatus === 'Fresher');
+    const experiencedJobs = allJobs.filter((j) => j.fresherStatus === 'Experienced');
+    const unclearJobs = allJobs.filter((j) => j.fresherStatus === 'Unclear');
+
     const expiredJobs = allJobs.filter((j) => j.freshnessStatus === 'Expired' || j.freshnessStatus === 'Closed');
+    const jobsWithWorkingLinks = allJobs.filter((j) => !!(j.applicationUrl || j.originalUrl));
+
+    // Granular 11-category location breakdown
+    const locationBreakdown = {
+      hyderabad: 0,
+      bengaluru: 0,
+      chennai: 0,
+      pune: 0,
+      mumbai: 0,
+      delhiNcr: 0,
+      otherIndianCities: 0,
+      remoteIndia: 0,
+      internationalRemote: 0,
+      internationalLocation: 0,
+      unknown: 0,
+    };
+
+    for (const j of allJobs) {
+      const loc = classifyDetailedLocation(j.location, j.workArrangement, j.country, j.description);
+      if (loc.category === 'Hyderabad') locationBreakdown.hyderabad++;
+      else if (loc.category === 'Bengaluru') locationBreakdown.bengaluru++;
+      else if (loc.category === 'Chennai') locationBreakdown.chennai++;
+      else if (loc.category === 'Pune') locationBreakdown.pune++;
+      else if (loc.category === 'Mumbai') locationBreakdown.mumbai++;
+      else if (loc.category === 'Delhi NCR') locationBreakdown.delhiNcr++;
+      else if (loc.category === 'Other Indian cities') locationBreakdown.otherIndianCities++;
+      else if (loc.category === 'Remote India') locationBreakdown.remoteIndia++;
+      else if (loc.category === 'International remote explicitly open to India') locationBreakdown.internationalRemote++;
+      else if (loc.category === 'International location') locationBreakdown.internationalLocation++;
+      else locationBreakdown.unknown++;
+    }
 
     const recentRuns = ingestionRunsRepository.getRecentRuns(10);
     const lastSuccessfulRun = recentRuns.find((r) => r.status === 'completed');
@@ -1230,7 +1255,17 @@ app.get('/api/sources/quality', (_req: Request, res: Response) => {
       jobsRequiringExperience: experiencedJobs.length,
       unclearExperienceJobs: unclearJobs.length,
       expiredJobs: expiredJobs.length,
+      jobsWithWorkingLinks: jobsWithWorkingLinks.length,
       lastSuccessfulDiscovery: lastSuccessfulRun?.completedAt || lastSuccessfulRun?.startedAt || null,
+      locationBreakdown,
+      sourceStatusBreakdown: {
+        configured: allCompanies.length,
+        active: activeCompanies.length,
+        successfullyFetched: successfulCompanies.length,
+        failed: failedCompanies.length,
+        temporarilyUnavailable: tempUnavailable.length,
+        noCurrentVacancies: noVacanciesCompanies.length,
+      },
       recentExclusions,
     });
   } catch (err: any) {
