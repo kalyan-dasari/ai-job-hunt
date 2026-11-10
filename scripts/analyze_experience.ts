@@ -54,3 +54,4 @@ shouldBeFresher.forEach(s => console.log(`  [${s.company}] "${s.title}" -> patte
 
 console.log('\nSample Unclear -> Experienced:');
 shouldBeExp.slice(0, 10).forEach(s => console.log(`  [${s.company}] "${s.title}" -> ${s.isSeniorTitle ? 'Senior title' : ''} ${s.yearsMatch || ''}`));
+

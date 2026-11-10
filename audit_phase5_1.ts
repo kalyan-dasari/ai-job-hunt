@@ -24,3 +24,4 @@ console.log('Sample jobs:', JSON.stringify(sampleJobs, null, 2));
 const companies = db.prepare('SELECT id, name, ats_provider, status, last_crawl_at, last_successful_crawl_at, last_error FROM company_sources').all();
 console.log(`Total company sources: ${companies.length}`);
 console.log('Sample company sources:', JSON.stringify(companies.slice(0, 5), null, 2));
+

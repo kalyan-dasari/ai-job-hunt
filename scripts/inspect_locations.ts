@@ -9,3 +9,4 @@ console.log(`Total distinct location strings: ${locations.length}`);
 locations.forEach(l => {
   console.log(`- "${l.location}": ${l.count} jobs`);
 });
+
