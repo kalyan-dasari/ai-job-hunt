@@ -420,3 +420,4 @@ export function printResumeAsPdf(profile: Parameters<typeof formatResumeAsPlainT
 
   printWindow.document.close();
 }
+

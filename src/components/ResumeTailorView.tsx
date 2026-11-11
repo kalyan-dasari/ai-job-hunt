@@ -531,3 +531,4 @@ export const ResumeTailorView: React.FC<ResumeTailorViewProps> = ({
     </div>
   );
 };
+

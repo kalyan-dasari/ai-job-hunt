@@ -51,3 +51,4 @@ export function isWithinHours(isoString?: string | null, hours: number = 24): bo
 export function isWithinDays(isoString?: string | null, days: number = 7): boolean {
   return isWithinHours(isoString, days * 24);
 }
+

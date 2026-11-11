@@ -218,3 +218,4 @@ export const SavedJobsView: React.FC<SavedJobsViewProps> = ({
     </div>
   );
 };
+
