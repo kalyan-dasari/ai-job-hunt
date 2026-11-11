@@ -97,11 +97,13 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
     loadData();
   }, []);
 
+  const [isRetryingFailed, setIsRetryingFailed] = useState(false);
+
   const handleRunPublicDiscovery = async () => {
     setIsDiscovering(true);
     setDiscoveryResult(null);
     try {
-      const res = await api.runDiscovery({ limitCompanies: 20 });
+      const res = await api.runDiscoveryNow();
       setDiscoveryResult({
         status: res.run?.status || 'completed',
         id: res.run?.id || `run-${Date.now()}`,
@@ -120,6 +122,41 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
       });
     } finally {
       setIsDiscovering(false);
+    }
+  };
+
+  const handleToggleSourceEnabled = async (comp: CompanySource) => {
+    try {
+      await api.toggleCompanyEnabled(comp.id);
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to toggle source enabled:', err);
+    }
+  };
+
+  const handleRetryCompany = async (companyId: string) => {
+    setTestingCompanyId(companyId);
+    try {
+      await api.retryCompany(companyId);
+      await loadData();
+      onJobsImported();
+    } catch (err: any) {
+      console.error('Failed to retry company:', err);
+    } finally {
+      setTestingCompanyId(null);
+    }
+  };
+
+  const handleRetryFailedSources = async () => {
+    setIsRetryingFailed(true);
+    try {
+      await api.retryFailedCompanies();
+      await loadData();
+      onJobsImported();
+    } catch (err: any) {
+      console.error('Failed to retry failed sources:', err);
+    } finally {
+      setIsRetryingFailed(false);
     }
   };
 

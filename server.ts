@@ -1547,6 +1547,57 @@ app.post('/api/companies/:id/test', async (req: Request, res: Response) => {
   }
 });
 
+// Toggle company source enabled
+app.post('/api/companies/:id/toggle-enabled', (req: Request, res: Response) => {
+  try {
+    const updated = companySourcesRepository.toggleEnabled(req.params.id, req.body?.isEnabled);
+    if (!updated) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to toggle source enabled status', details: err.message });
+  }
+});
+
+// Retry a single company source
+app.post('/api/companies/:id/retry', async (req: Request, res: Response) => {
+  try {
+    const company = companySourcesRepository.getById(req.params.id);
+    if (!company) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    const result = await jobDiscoveryAgent.discover({
+      companyIds: [company.id],
+      triggerType: 'manual',
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Retry source failed', details: err.message });
+  }
+});
+
+// Retry all failed company sources
+app.post('/api/companies/retry-failed', async (_req: Request, res: Response) => {
+  try {
+    const all = companySourcesRepository.getAll();
+    const failedIds = all.filter((c) => (c.lastError && c.lastError.length > 0) || c.status === 'error').map((c) => c.id);
+    if (failedIds.length === 0) {
+      res.json({ message: 'No failed sources to retry', retriedCount: 0 });
+      return;
+    }
+    const result = await jobDiscoveryAgent.discover({
+      companyIds: failedIds,
+      triggerType: 'manual',
+    });
+    res.json({ ...result, retriedCount: failedIds.length });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Retry failed sources failed', details: err.message });
+  }
+});
+
 // Inspect arbitrary URL for ATS / JSON-LD / career links
 app.post('/api/companies/detect', async (req: Request, res: Response) => {
   try {
@@ -1724,7 +1775,7 @@ app.get('/api/export', (req: Request, res: Response) => {
 async function startServer() {
   initDatabase();
   console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
-  ingestionService.startScheduler(60);
+  ingestionService.startScheduler();
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));

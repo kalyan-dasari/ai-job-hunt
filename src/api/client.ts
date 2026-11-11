@@ -1,7 +1,7 @@
 import { Job, VerificationReport, MatchResult } from '../types/job';
 import { CandidateProfile } from '../types/candidate';
 import { ApplicationRecord, EmailMessageRecord, NotificationItem, PreparedMaterials } from '../types/application';
-import { SourceConnector, CompanySource } from '../types/connector';
+import { SourceConnector, CompanySource, SchedulerState, DailyDiscoveriesResponse } from '../types/connector';
 
 export const api = {
   // Candidate Profile
@@ -370,6 +370,68 @@ export const api = {
   async getSourceQuality(): Promise<any> {
     const res = await fetch('/api/sources/quality');
     if (!res.ok) throw new Error('Failed to fetch source quality metrics');
+    return res.json();
+  },
+
+  // Daily Discoveries & Feed
+  async getDailyDiscoveries(params?: Record<string, string>): Promise<DailyDiscoveriesResponse> {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`/api/jobs/daily${query ? `?${query}` : ''}`);
+    if (!res.ok) throw new Error('Failed to load daily discoveries feed');
+    return res.json();
+  },
+
+  // Scheduler API
+  async getSchedulerConfig(): Promise<SchedulerState & { isRunning: boolean; formattedNextRunIst: string; formattedLastRunIst: string }> {
+    const res = await fetch('/api/scheduler');
+    if (!res.ok) throw new Error('Failed to load scheduler configuration');
+    return res.json();
+  },
+
+  async updateSchedulerConfig(updates: {
+    enabled?: boolean;
+    scheduleTimeIst?: string;
+    intervalHours?: number;
+    catchUpEnabled?: boolean;
+    intervalMinutes?: number;
+  }): Promise<{ message: string; config: any }> {
+    const res = await fetch('/api/scheduler/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error('Failed to update scheduler configuration');
+    return res.json();
+  },
+
+  async runDiscoveryNow(): Promise<{ success: boolean; run: any; config: any }> {
+    const res = await fetch('/api/scheduler/run-now', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to trigger discovery run');
+    }
+    return res.json();
+  },
+
+  async toggleCompanyEnabled(id: string, isEnabled?: boolean): Promise<CompanySource> {
+    const res = await fetch(`/api/companies/${id}/toggle-enabled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isEnabled }),
+    });
+    if (!res.ok) throw new Error('Failed to toggle source enabled state');
+    return res.json();
+  },
+
+  async retryCompany(id: string): Promise<any> {
+    const res = await fetch(`/api/companies/${id}/retry`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to retry company source');
+    return res.json();
+  },
+
+  async retryFailedCompanies(): Promise<any> {
+    const res = await fetch('/api/companies/retry-failed', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to retry failed company sources');
     return res.json();
   },
 };
