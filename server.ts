@@ -141,17 +141,60 @@ app.get('/api/scheduler', (_req: Request, res: Response) => {
 
 app.post('/api/scheduler/config', (req: Request, res: Response) => {
   try {
-    const { enabled, intervalMinutes } = req.body;
-    ingestionService.updateConfig(
-      typeof enabled === 'boolean' ? enabled : true,
-      Number(intervalMinutes) || 60
-    );
+    const { enabled, scheduleTimeIst, intervalHours, catchUpEnabled, intervalMinutes } = req.body;
+    const computedHours = intervalHours !== undefined ? Number(intervalHours) : (intervalMinutes ? Math.round(Number(intervalMinutes) / 60) : 24);
+    const updated = ingestionService.updateConfig({
+      enabled: typeof enabled === 'boolean' ? enabled : undefined,
+      scheduleTimeIst: typeof scheduleTimeIst === 'string' ? scheduleTimeIst : undefined,
+      intervalHours: computedHours,
+      catchUpEnabled: typeof catchUpEnabled === 'boolean' ? catchUpEnabled : undefined,
+    });
     res.json({
       message: 'Scheduler configuration updated successfully',
       config: ingestionService.getConfig(),
     });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to update scheduler configuration', details: err.message });
+  }
+});
+
+app.post('/api/scheduler/run-now', async (_req: Request, res: Response) => {
+  try {
+    if (ingestionService.isRunning()) {
+      res.status(409).json({ error: 'Discovery is already running. Please wait for the current run to complete.' });
+      return;
+    }
+    const run = await ingestionService.runIngestion({ triggerType: 'manual' });
+    res.json({ success: true, run, config: ingestionService.getConfig() });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Manual discovery run failed', details: err.message });
+  }
+});
+
+// Daily Discoveries Endpoint
+app.get('/api/jobs/daily', (req: Request, res: Response) => {
+  try {
+    const timeframe = (req.query.timeframe as any) || 'today';
+    const role = req.query.role as string | undefined;
+    const experience = req.query.experience as string | undefined;
+    const location = req.query.location as string | undefined;
+    const status = req.query.status as string | undefined;
+
+    const result = jobsRepository.getDailyDiscoveries(timeframe, {
+      role,
+      experience,
+      location,
+      status,
+    });
+
+    res.json({
+      jobs: result.jobs,
+      stats: result.stats,
+      scheduler: ingestionService.getConfig(),
+      timeframe,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load daily discoveries', details: err.message });
   }
 });
 
