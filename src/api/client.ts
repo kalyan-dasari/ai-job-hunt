@@ -39,6 +39,44 @@ export const api = {
     return res.json();
   },
 
+  async setActiveResumeVersion(id: string): Promise<{ success: boolean; profile: CandidateProfile }> {
+    const res = await fetch(`/api/candidate/resumes/${id}/activate`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to activate resume version');
+    return res.json();
+  },
+
+  async renameResumeVersion(id: string, versionName: string): Promise<{ success: boolean; profile: CandidateProfile }> {
+    const res = await fetch(`/api/candidate/resumes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ versionName }),
+    });
+    if (!res.ok) throw new Error('Failed to rename resume version');
+    return res.json();
+  },
+
+  async deleteResumeVersion(id: string): Promise<{ success: boolean; profile: CandidateProfile }> {
+    const res = await fetch(`/api/candidate/resumes/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete resume version');
+    return res.json();
+  },
+
+  async saveTailoredResume(versionName: string, content: string): Promise<{ success: boolean; profile: CandidateProfile }> {
+    const res = await fetch('/api/candidate/resumes/tailored', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ versionName, content }),
+    });
+    if (!res.ok) throw new Error('Failed to save tailored resume version');
+    return res.json();
+  },
+
+  async getResumeVersion(id: string): Promise<{ id: string; rawText: string; versionName: string }> {
+    const res = await fetch(`/api/candidate/resumes/${id}`);
+    if (!res.ok) throw new Error('Failed to fetch resume version');
+    return res.json();
+  },
+
   // Jobs
   async getJobs(params?: Record<string, string>): Promise<{ total: number; jobs: Job[] }> {
     const query = new URLSearchParams(params).toString();
