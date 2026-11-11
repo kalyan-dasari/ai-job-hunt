@@ -533,3 +533,4 @@ export const DailyDiscoveriesView: React.FC<DailyDiscoveriesViewProps> = ({
     </div>
   );
 };
+
