@@ -673,17 +673,39 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Indian tech startups &amp; product leaders actively monitored ({activeCompaniesCount} active). Crawls direct ATS APIs and JSON-LD schemas with zero API fees.
+              Indian tech startups &amp; product leaders actively monitored ({companies.filter(c => (c.isEnabled ?? true) && c.status !== 'disabled').length} enabled). Crawls direct ATS APIs and JSON-LD schemas with zero API fees.
             </p>
           </div>
 
-          <button
-            onClick={() => setIsAddingCompany(!isAddingCompany)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-colors shrink-0"
-          >
-            {isAddingCompany ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            <span>{isAddingCompany ? 'Cancel' : 'Add Company'}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleRunPublicDiscovery}
+              disabled={isDiscovering}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-colors disabled:opacity-50 shadow-sm"
+              title="Run live discovery across all enabled company sources"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
+              <span>{isDiscovering ? 'Discovering...' : 'Run All Sources Now'}</span>
+            </button>
+
+            <button
+              onClick={handleRetryFailedSources}
+              disabled={isRetryingFailed}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-amber-300 bg-amber-950/40 hover:bg-amber-900/40 border border-amber-800/50 rounded-xl transition-colors disabled:opacity-50"
+              title="Retry sources that experienced errors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetryingFailed ? 'animate-spin' : ''}`} />
+              <span>Retry Failed Sources</span>
+            </button>
+
+            <button
+              onClick={() => setIsAddingCompany(!isAddingCompany)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-colors shrink-0"
+            >
+              {isAddingCompany ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+              <span>{isAddingCompany ? 'Cancel' : 'Add Company'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Inline Add Company Form */}
@@ -793,11 +815,13 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 font-mono text-[11px]">
+                <th className="pb-2.5 font-medium">Enabled</th>
                 <th className="pb-2.5 font-medium">Company</th>
                 <th className="pb-2.5 font-medium">ATS Integration</th>
-                <th className="pb-2.5 font-medium">Status</th>
+                <th className="pb-2.5 font-medium">HTTP Status</th>
                 <th className="pb-2.5 font-medium">Last Crawl</th>
-                <th className="pb-2.5 font-medium text-right">Jobs Found</th>
+                <th className="pb-2.5 font-medium">Crawl Metrics</th>
+                <th className="pb-2.5 font-medium text-right">Vacancies</th>
                 <th className="pb-2.5 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -805,9 +829,20 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
               {companies.map((comp) => {
                 const isTesting = testingCompanyId === comp.id;
                 const testResult = companyTestResults[comp.id];
+                const isEnabled = comp.isEnabled ?? true;
 
                 return (
                   <tr key={comp.id} className="hover:bg-slate-900/40">
+                    <td className="py-3">
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={() => handleToggleSourceEnabled(comp)}
+                        className="w-4 h-4 rounded text-sky-600 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
+                        title={isEnabled ? 'Click to disable source' : 'Click to enable source'}
+                      />
+                    </td>
+
                     <td className="py-3">
                       <div className="font-semibold text-white flex items-center gap-1.5">
                         <span>{comp.name}</span>
@@ -834,22 +869,34 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
                       </span>
                     </td>
 
-                    <td className="py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded border ${
-                          comp.status === 'active'
-                            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                            : 'text-slate-400 bg-slate-800/60 border-slate-700/60'
-                        }`}
-                      >
-                        {comp.status === 'active' ? 'Active' : 'Paused'}
-                      </span>
+                    <td className="py-3 font-mono text-[11px]">
+                      {comp.lastError ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20" title={comp.lastError}>
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>{comp.httpStatus || 500} ERR</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <Check className="w-3 h-3" />
+                          <span>{comp.httpStatus || 200} OK</span>
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3 font-mono text-[11px] text-slate-400">
                       {comp.lastCrawlAt
                         ? new Date(comp.lastCrawlAt).toLocaleTimeString()
                         : 'Never'}
+                    </td>
+
+                    <td className="py-3 font-mono text-[10px] text-slate-400">
+                      <div className="flex items-center gap-2">
+                        <span title="New jobs added" className="text-sky-400">+{comp.newJobsCount || 0} new</span>
+                        <span>·</span>
+                        <span title="Existing jobs updated" className="text-amber-400">{comp.updatedJobsCount || 0} upd</span>
+                        <span>·</span>
+                        <span title="Closed jobs detected" className="text-rose-400">{comp.closedJobsCount || 0} clsd</span>
+                      </div>
                     </td>
 
                     <td className="py-3 font-mono text-[11px] text-right text-emerald-400 font-bold">
@@ -869,10 +916,10 @@ export const SourcesIngestionView: React.FC<SourcesIngestionViewProps> = ({
                         )}
 
                         <button
-                          onClick={() => handleTestCompany(comp.id)}
+                          onClick={() => handleRetryCompany(comp.id)}
                           disabled={isTesting}
                           className="px-2 py-1 text-[11px] font-medium text-sky-400 hover:text-white bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg transition-colors disabled:opacity-50"
-                          title="Test crawl now"
+                          title="Crawl / retry this source now"
                         >
                           <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin' : ''}`} />
                         </button>

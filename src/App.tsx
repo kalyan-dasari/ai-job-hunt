@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar, NavTab } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
+import { DailyDiscoveriesView } from './components/DailyDiscoveriesView';
 import { JobDiscoveryView } from './components/JobDiscoveryView';
 import { StartupJobsView } from './components/StartupJobsView';
 import { ResumeProfileView } from './components/ResumeProfileView';
