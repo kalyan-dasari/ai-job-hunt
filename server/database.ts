@@ -1293,6 +1293,221 @@ export const jobsRepository = {
     );
     return this.getJobById(id);
   },
+
+  updateExistingJobSeen(id: string, updates?: { description?: string; title?: string; datePosted?: string }): Job | null {
+    const db = getDatabase();
+    const existing = this.getJobById(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    let isUpdated = existing.isUpdated ? 1 : 0;
+    if (updates && ((updates.description && updates.description !== existing.description) || (updates.title && updates.title !== existing.title))) {
+      isUpdated = 1;
+    }
+    db.prepare(`
+      UPDATE jobs
+      SET last_seen_at = ?,
+          last_checked = ?,
+          job_status = 'Open',
+          freshness_status = 'Active',
+          closed_at = NULL,
+          is_updated = ?,
+          description = COALESCE(?, description),
+          title = COALESCE(?, title),
+          posted_at = COALESCE(?, posted_at),
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      now,
+      now,
+      isUpdated,
+      updates?.description || null,
+      updates?.title || null,
+      updates?.datePosted || null,
+      now,
+      id
+    );
+    return this.getJobById(id);
+  },
+
+  updateJobStatus(id: string, status: 'Open' | 'Closed' | 'Expired' | 'Unverified'): Job | null {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const closedAt = status === 'Closed' ? now : null;
+    db.prepare(`
+      UPDATE jobs
+      SET job_status = ?,
+          freshness_status = CASE WHEN ? = 'Closed' THEN 'Closed' WHEN ? = 'Expired' THEN 'Expired' ELSE freshness_status END,
+          closed_at = CASE WHEN ? = 'Closed' THEN ? ELSE closed_at END,
+          updated_at = ?
+      WHERE id = ?
+    `).run(status, status, status, status, closedAt, now, id);
+    return this.getJobById(id);
+  },
+
+  markMissingJobsClosedForCompany(companyId: string, companyName: string, activeKeys: Set<string>): { closedCount: number } {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const openJobs = db.prepare(`
+      SELECT id, title, company, original_url, canonical_url, external_job_id, source_job_id
+      FROM jobs
+      WHERE (source_id = ? OR LOWER(company) = LOWER(?))
+        AND job_status != 'Closed'
+    `).all(companyId, companyName) as any[];
+
+    let closedCount = 0;
+    const closeStmt = db.prepare(`
+      UPDATE jobs
+      SET job_status = 'Closed',
+          freshness_status = 'Closed',
+          closed_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+
+    for (const job of openJobs) {
+      const extId = job.external_job_id || job.source_job_id || '';
+      const url = job.original_url || job.canonical_url || '';
+      const normKey = `${(job.company || '').toLowerCase().replace(/[^a-z0-9]/g, '')}::${(job.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+      const isFound = (extId && activeKeys.has(extId)) ||
+                      (url && activeKeys.has(url)) ||
+                      activeKeys.has(normKey);
+
+      if (!isFound) {
+        closeStmt.run(now, now, job.id);
+        closedCount++;
+      }
+    }
+
+    if (closedCount > 0) {
+      activityLogsRepository.log(
+        'jobs_closed_detected',
+        'source',
+        companyId,
+        `Marked ${closedCount} missing vacancy listing(s) as Closed for ${companyName}.`
+      );
+    }
+
+    return { closedCount };
+  },
+
+  getDailyDiscoveries(
+    timeframe: 'today' | '24h' | '7d' | '30d' = 'today',
+    filters: {
+      role?: string;
+      experience?: string;
+      location?: string;
+      status?: string;
+    } = {}
+  ): {
+    jobs: Job[];
+    stats: {
+      newlyDiscoveredToday: number;
+      newlyPostedLast24h: number;
+      newOpeningsLast7d: number;
+      recentlyUpdated: number;
+      fresherJobs: number;
+      internships: number;
+      remoteIndia: number;
+      byRole: Record<string, number>;
+      byLocation: Record<string, number>;
+    };
+  } {
+    const allJobs = this.getAllJobs();
+
+    let newlyDiscoveredToday = 0;
+    let newlyPostedLast24h = 0;
+    let newOpeningsLast7d = 0;
+    let recentlyUpdated = 0;
+    let fresherJobs = 0;
+    let internships = 0;
+    let remoteIndia = 0;
+    const byRole: Record<string, number> = {};
+    const byLocation: Record<string, number> = {};
+
+    for (const j of allJobs) {
+      if (isTodayIst(j.firstSeenAt)) newlyDiscoveredToday++;
+      if (j.postedAt && isWithinHours(j.postedAt, 24)) newlyPostedLast24h++;
+      if (isWithinDays(j.firstSeenAt, 7)) newOpeningsLast7d++;
+      if (j.isUpdated || (j.lastSeenAt && j.firstSeenAt && j.lastSeenAt > j.firstSeenAt)) recentlyUpdated++;
+      if (j.fresherStatus === 'Fresher') fresherJobs++;
+      if (j.employmentType === 'Internship' || j.experienceLevel === 'Intern') internships++;
+      if (j.workArrangement === 'Remote' || j.locationCategory === 'India remote') remoteIndia++;
+
+      const roleCat = j.targetRoleCategory || 'Other Software Roles';
+      byRole[roleCat] = (byRole[roleCat] || 0) + 1;
+
+      const locKey = j.location.split(',')[0].trim();
+      if (locKey) {
+        byLocation[locKey] = (byLocation[locKey] || 0) + 1;
+      }
+    }
+
+    let filtered = allJobs.filter((j) => {
+      if (timeframe === 'today') {
+        return isTodayIst(j.firstSeenAt) || (j.postedAt && isTodayIst(j.postedAt));
+      } else if (timeframe === '24h') {
+        return isWithinHours(j.firstSeenAt, 24) || (j.postedAt && isWithinHours(j.postedAt, 24));
+      } else if (timeframe === '7d') {
+        return isWithinDays(j.firstSeenAt, 7) || (j.postedAt && isWithinDays(j.postedAt, 7));
+      } else if (timeframe === '30d') {
+        return isWithinDays(j.firstSeenAt, 30) || (j.postedAt && isWithinDays(j.postedAt, 30));
+      }
+      return true;
+    });
+
+    // If today has no new discoveries yet, return open catalog jobs
+    if (filtered.length === 0 && timeframe === 'today') {
+      filtered = allJobs.filter((j) => j.jobStatus !== 'Closed').slice(0, 30);
+    }
+
+    if (filters.role && filters.role !== 'all') {
+      const q = filters.role.toLowerCase();
+      filtered = filtered.filter((j) =>
+        j.title.toLowerCase().includes(q) ||
+        (j.targetRoleCategory || '').toLowerCase().includes(q) ||
+        j.requiredSkills.some((s) => s.toLowerCase().includes(q))
+      );
+    }
+
+    if (filters.experience && filters.experience !== 'all') {
+      if (filters.experience === 'fresher') {
+        filtered = filtered.filter((j) => j.fresherStatus === 'Fresher');
+      } else if (filters.experience === 'internship') {
+        filtered = filtered.filter((j) => j.employmentType === 'Internship' || j.experienceLevel === 'Intern');
+      } else if (filters.experience === 'experienced') {
+        filtered = filtered.filter((j) => j.fresherStatus === 'Experienced');
+      }
+    }
+
+    if (filters.location && filters.location !== 'all') {
+      const locQ = filters.location.toLowerCase();
+      if (locQ === 'remote_india') {
+        filtered = filtered.filter((j) => j.workArrangement === 'Remote' || j.locationCategory === 'India remote');
+      } else {
+        filtered = filtered.filter((j) => j.location.toLowerCase().includes(locQ));
+      }
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      filtered = filtered.filter((j) => (j.jobStatus || 'Open') === filters.status);
+    }
+
+    return {
+      jobs: filtered,
+      stats: {
+        newlyDiscoveredToday,
+        newlyPostedLast24h,
+        newOpeningsLast7d,
+        recentlyUpdated,
+        fresherJobs,
+        internships,
+        remoteIndia,
+        byRole,
+        byLocation,
+      },
+    };
+  },
 };
 
 // 3. APPLICATIONS REPOSITORY
