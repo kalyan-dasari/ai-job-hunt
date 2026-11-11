@@ -11,9 +11,15 @@ import {
   NotificationItem,
   PreparedMaterials,
 } from '../src/types/application';
-import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt } from '../src/types/connector';
+import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt, SchedulerState } from '../src/types/connector';
 import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
 import { normalizeExperienceLevel, classifyLocation } from './job-sources/normalizer.ts';
+import {
+  computeNextRunAtIst,
+  isTodayIst,
+  isWithinHours,
+  isWithinDays,
+} from './temporal.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
 let dbInstance: DatabaseSync | null = null;
@@ -558,6 +564,86 @@ const MIGRATIONS = [
       try { db.exec("ALTER TABLE applications ADD COLUMN cover_letter_text TEXT;"); } catch {}
     },
   },
+  {
+    version: 8,
+    name: '008_daily_discovery_scheduler_and_temporal_job_tracking',
+    up: (db: DatabaseSync) => {
+      // 1. Extend jobs table with temporal discovery, status and source tracking
+      try { db.exec("ALTER TABLE jobs ADD COLUMN posted_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN first_seen_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN last_seen_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN closed_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN source_id TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN external_job_id TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN job_status TEXT DEFAULT 'Open';"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN is_updated INTEGER DEFAULT 0;"); } catch {}
+
+      // Indices for high-performance daily filtering and status checks
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_jobs_first_seen_at ON jobs(first_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_jobs_posted_at ON jobs(posted_at);
+        CREATE INDEX IF NOT EXISTS idx_jobs_job_status ON jobs(job_status);
+        CREATE INDEX IF NOT EXISTS idx_jobs_source_id ON jobs(source_id);
+        CREATE INDEX IF NOT EXISTS idx_jobs_external_job_id ON jobs(external_job_id);
+      `);
+
+      // 2. Backfill existing jobs in SQLite
+      db.exec(`
+        UPDATE jobs
+        SET posted_at = CASE WHEN date_posted IS NOT NULL AND date_posted != '' THEN date_posted ELSE NULL END,
+            first_seen_at = COALESCE(created_at, datetime('now')),
+            last_seen_at = COALESCE(last_checked, created_at, datetime('now')),
+            external_job_id = CASE WHEN source_job_id IS NOT NULL AND source_job_id != '' THEN source_job_id ELSE NULL END,
+            job_status = CASE WHEN freshness_status = 'Closed' THEN 'Closed' WHEN freshness_status = 'Expired' THEN 'Expired' ELSE 'Open' END,
+            is_updated = 0
+        WHERE first_seen_at IS NULL;
+
+        UPDATE jobs
+        SET source_id = (
+          SELECT company_sources.id FROM company_sources
+          WHERE LOWER(company_sources.name) = LOWER(jobs.company)
+          LIMIT 1
+        )
+        WHERE source_id IS NULL;
+      `);
+
+      // 3. Scheduler State Table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS scheduler_state (
+          id TEXT PRIMARY KEY DEFAULT 'global_scheduler',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          schedule_time_ist TEXT NOT NULL DEFAULT '07:00',
+          interval_hours INTEGER NOT NULL DEFAULT 24,
+          last_run_at TEXT,
+          last_successful_run_at TEXT,
+          next_run_at TEXT,
+          execution_status TEXT NOT NULL DEFAULT 'idle',
+          last_error TEXT,
+          catch_up_enabled INTEGER NOT NULL DEFAULT 1,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      const now = new Date().toISOString();
+      const initialNextRun = computeNextRunAtIst('07:00', 24);
+      db.prepare(`
+        INSERT OR IGNORE INTO scheduler_state (
+          id, enabled, schedule_time_ist, interval_hours, next_run_at, execution_status, catch_up_enabled, updated_at
+        ) VALUES ('global_scheduler', 1, '07:00', 24, ?, 'idle', 1, ?)
+      `).run(initialNextRun, now);
+
+      // 4. Extend company_sources with crawl metrics and enabled status
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN http_status INTEGER DEFAULT 200;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN pages_fetched INTEGER DEFAULT 1;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN raw_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN new_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN updated_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN duplicates_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN closed_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN execution_duration_ms INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN is_enabled INTEGER DEFAULT 1;"); } catch {}
+    },
+  },
 ];
 
 function runMigrations(db: DatabaseSync): void {
@@ -900,6 +986,14 @@ function mapJobFromRow(row: any): Job {
     applicationUrl: row.application_url || row.original_url || '',
     datePosted: row.date_posted,
     lastChecked: row.last_checked,
+    postedAt: row.posted_at || (row.date_posted && row.date_posted.trim() !== '' ? row.date_posted : undefined),
+    firstSeenAt: row.first_seen_at || row.created_at || undefined,
+    lastSeenAt: row.last_seen_at || row.last_checked || undefined,
+    closedAt: row.closed_at || undefined,
+    sourceId: row.source_id || undefined,
+    externalJobId: row.external_job_id || row.source_job_id || undefined,
+    jobStatus: (row.job_status as any) || (row.freshness_status === 'Closed' ? 'Closed' : 'Open'),
+    isUpdated: intToBool(row.is_updated),
     isStartup: intToBool(row.is_startup),
     startupInfo: fromJson(row.startup_info, undefined),
     verificationReport: fromJson(row.verification_report, {
@@ -942,6 +1036,12 @@ export const jobsRepository = {
   saveJob(job: Job): Job {
     const db = getDatabase();
     const now = new Date().toISOString();
+    const postedAt = job.postedAt || (job.datePosted && job.datePosted.trim() !== '' ? job.datePosted : null);
+    const firstSeenAt = job.firstSeenAt || now;
+    const lastSeenAt = job.lastSeenAt || now;
+    const jobStatus = job.jobStatus || 'Open';
+    const isUpdated = job.isUpdated ? 1 : 0;
+
     const stmt = db.prepare(`
       INSERT INTO jobs (
         id, title, company, company_logo, company_website, location, country, work_arrangement,
@@ -951,6 +1051,7 @@ export const jobsRepository = {
         last_checked, is_startup, startup_info, verification_report,
         match_result, is_saved, is_dismissed, is_duplicate, duplicate_of_id,
         freshness_status, fresher_status, location_category, target_role_category, expiry_date, last_verified_at,
+        posted_at, first_seen_at, last_seen_at, closed_at, source_id, external_job_id, job_status, is_updated,
         created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
@@ -960,6 +1061,7 @@ export const jobsRepository = {
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -991,16 +1093,19 @@ export const jobsRepository = {
         startup_info = excluded.startup_info,
         verification_report = excluded.verification_report,
         match_result = excluded.match_result,
-        is_saved = excluded.is_saved,
-        is_dismissed = excluded.is_dismissed,
-        is_duplicate = excluded.is_duplicate,
-        duplicate_of_id = excluded.duplicate_of_id,
         freshness_status = excluded.freshness_status,
         fresher_status = excluded.fresher_status,
         location_category = excluded.location_category,
         target_role_category = excluded.target_role_category,
         expiry_date = excluded.expiry_date,
         last_verified_at = excluded.last_verified_at,
+        posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
+        last_seen_at = excluded.last_seen_at,
+        closed_at = excluded.closed_at,
+        source_id = COALESCE(excluded.source_id, jobs.source_id),
+        external_job_id = COALESCE(excluded.external_job_id, jobs.external_job_id),
+        job_status = excluded.job_status,
+        is_updated = CASE WHEN jobs.description != excluded.description OR jobs.title != excluded.title THEN 1 ELSE jobs.is_updated END,
         updated_at = excluded.updated_at
     `);
 
@@ -1044,6 +1149,14 @@ export const jobsRepository = {
       job.targetRoleCategory || null,
       job.expiryDate || null,
       job.lastVerifiedAt || job.lastChecked || now,
+      postedAt,
+      firstSeenAt,
+      lastSeenAt,
+      job.closedAt || null,
+      job.sourceId || null,
+      job.externalJobId || job.sourceJobId || null,
+      jobStatus,
+      isUpdated,
       now,
       now
     );

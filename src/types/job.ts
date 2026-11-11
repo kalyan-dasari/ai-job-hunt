@@ -34,6 +34,7 @@ export type JobSource =
 
 export type VerificationStatus = 'Verified' | 'Needs Review' | 'High Risk' | 'Unknown';
 export type FreshnessStatus = 'Newly Discovered' | 'Active' | 'Potentially Stale' | 'Expired' | 'Closed';
+export type JobStatus = 'Open' | 'Closed' | 'Expired' | 'Unverified';
 
 export interface VerificationCheckDetail {
   id: string;
@@ -131,6 +132,14 @@ export interface Job {
   applicationUrl?: string;
   datePosted: string;
   lastChecked: string;
+  postedAt?: string;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  closedAt?: string;
+  sourceId?: string;
+  externalJobId?: string;
+  jobStatus?: JobStatus;
+  isUpdated?: boolean;
   isStartup: boolean;
   startupInfo?: StartupInfo;
   verificationReport: VerificationReport;

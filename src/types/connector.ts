@@ -1,4 +1,4 @@
-import { JobSource } from './job';
+import { JobSource, Job } from './job';
 
 export type ConnectorStatus = 'Active' | 'Demo' | 'Configured' | 'Setup Required' | 'Restricted' | 'Awaiting Credentials';
 
@@ -43,8 +43,50 @@ export interface CompanySource {
   lastError?: string;
   crawlFrequencyHours: number;
   jobsCount: number;
+  httpStatus?: number;
+  pagesFetched?: number;
+  rawJobsCount?: number;
+  newJobsCount?: number;
+  updatedJobsCount?: number;
+  duplicatesCount?: number;
+  closedJobsCount?: number;
+  executionDurationMs?: number;
+  isEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SchedulerState {
+  id: string;
+  enabled: boolean;
+  scheduleTimeIst: string; // e.g. "07:00"
+  intervalHours: number; // e.g. 24
+  lastRunAt?: string;
+  lastSuccessfulRunAt?: string;
+  nextRunAt?: string;
+  executionStatus: 'idle' | 'running' | 'completed' | 'failed';
+  lastError?: string;
+  catchUpEnabled: boolean;
+  updatedAt: string;
+}
+
+export interface DailyJobStats {
+  newlyDiscoveredToday: number;
+  newlyPostedLast24h: number;
+  newOpeningsLast7d: number;
+  recentlyUpdated: number;
+  fresherJobs: number;
+  internships: number;
+  remoteIndia: number;
+  byRole: Record<string, number>;
+  byLocation: Record<string, number>;
+}
+
+export interface DailyDiscoveriesResponse {
+  jobs: Job[];
+  stats: DailyJobStats;
+  scheduler: SchedulerState;
+  timeframe: 'today' | '24h' | '7d' | '30d';
 }
 
 export interface DiscoveryAttempt {
