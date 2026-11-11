@@ -36,53 +36,72 @@ export class SmartRecruitersAtsAdapter implements AtsAdapter {
 
   async fetchJobs(slug: string, companyName: string, options: AtsFetchOptions = {}): Promise<FetchResult> {
     try {
-      const url = this.buildPublicUrl(slug);
-      const res = await safeFetchWithRetry(url, {}, options.maxRetries ?? 2, options.timeoutMs ?? 10000);
-
-      if (!res.ok) {
-        return {
-          success: false,
-          jobs: [],
-          error: `SmartRecruiters API returned HTTP ${res.status}`,
-        };
-      }
-
-      const json = await res.json();
-      const items = Array.isArray(json?.content) ? json.content : [];
       const rawJobs: RawSourceJob[] = [];
+      const limit = 100;
+      let offset = 0;
+      let totalFound = 0;
+      let pagesFetched = 0;
+      const maxPages = 5; // Up to 500 postings per board
 
-      for (const item of items) {
-        const locParts = [item.location?.city, item.location?.region, item.location?.country].filter(Boolean);
-        const loc = locParts.length > 0 ? locParts.join(', ') : 'Not Specified';
-        const isRemote = Boolean(item.location?.remote) || loc.toLowerCase().includes('remote') || (item.name || '').toLowerCase().includes('remote');
+      while (pagesFetched < maxPages) {
+        const url = `https://api.smartrecruiters.com/v1/companies/${slug}/postings?limit=${limit}&offset=${offset}`;
+        const res = await safeFetchWithRetry(url, {}, options.maxRetries ?? 2, options.timeoutMs ?? 10000);
 
-        const jobUrl = `https://jobs.smartrecruiters.com/${slug}/${item.id}`;
+        if (!res.ok) {
+          if (rawJobs.length > 0) {
+            break; // return whatever pages succeeded
+          }
+          return {
+            success: false,
+            jobs: [],
+            error: `SmartRecruiters API returned HTTP ${res.status}`,
+          };
+        }
 
-        rawJobs.push({
-          externalId: item.id || item.uuid ? String(item.id || item.uuid) : undefined,
-          title: item.name || 'Software Engineer',
-          company: companyName,
-          location: loc,
-          workArrangement: isRemote ? 'Remote' : 'Hybrid',
-          employmentType: item.typeOfEmployment?.label || 'Full-time',
-          description: `${item.name} at ${companyName}. Department: ${item.department?.label || 'Engineering'}.`,
-          url: jobUrl,
-          canonicalUrl: jobUrl,
-          postedDate: item.releasedDate || new Date().toISOString(),
-          sourceName: 'SmartRecruiters',
-          rawMetadata: {
-            ats: 'smartrecruiters',
-            slug,
-            refNumber: item.refNumber,
-            department: item.department?.label,
-          },
-        });
+        const json = await res.json();
+        totalFound = json?.totalFound || totalFound;
+        const items = Array.isArray(json?.content) ? json.content : [];
+        if (items.length === 0) break;
+        pagesFetched++;
+
+        for (const item of items) {
+          const locParts = [item.location?.city, item.location?.region, item.location?.country].filter(Boolean);
+          const loc = locParts.length > 0 ? locParts.join(', ') : 'Not Specified';
+          const isRemote = Boolean(item.location?.remote) || loc.toLowerCase().includes('remote') || (item.name || '').toLowerCase().includes('remote');
+
+          const jobUrl = `https://jobs.smartrecruiters.com/${slug}/${item.id}`;
+
+          rawJobs.push({
+            externalId: item.id || item.uuid ? String(item.id || item.uuid) : undefined,
+            title: item.name || 'Software Engineer',
+            company: companyName,
+            location: loc,
+            workArrangement: isRemote ? 'Remote' : 'Hybrid',
+            employmentType: item.typeOfEmployment?.label || 'Full-time',
+            description: `${item.name} at ${companyName}. Department: ${item.department?.label || 'Engineering'}.`,
+            url: jobUrl,
+            canonicalUrl: jobUrl,
+            postedDate: item.releasedDate || undefined,
+            sourceName: 'SmartRecruiters',
+            rawMetadata: {
+              ats: 'smartrecruiters',
+              slug,
+              refNumber: item.refNumber,
+              department: item.department?.label,
+            },
+          });
+        }
+
+        offset += items.length;
+        if (offset >= totalFound || items.length < limit) {
+          break;
+        }
       }
 
       return {
         success: true,
         jobs: rawJobs,
-        totalFound: rawJobs.length,
+        totalFound: totalFound || rawJobs.length,
       };
     } catch (err: any) {
       return {

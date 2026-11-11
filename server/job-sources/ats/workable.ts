@@ -70,7 +70,7 @@ export class WorkableAtsAdapter implements AtsAdapter {
           url: item.url || `https://apply.workable.com/j/${item.shortcode}`,
           canonicalUrl: item.url,
           applicationUrl: item.application_url || item.url,
-          postedDate: item.published_on || item.created_at || new Date().toISOString(),
+          postedDate: item.published_on || item.created_at || undefined,
           sourceName: 'Workable',
           rawMetadata: {
             ats: 'workable',

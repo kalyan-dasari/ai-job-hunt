@@ -11,9 +11,15 @@ import {
   NotificationItem,
   PreparedMaterials,
 } from '../src/types/application';
-import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt } from '../src/types/connector';
+import { SourceConnector, ProviderUsageInfo, CompanySource, DiscoveryAttempt, SchedulerState } from '../src/types/connector';
 import { IngestionRunRecord, JobSourceReference } from './job-sources/types.ts';
 import { normalizeExperienceLevel, classifyLocation } from './job-sources/normalizer.ts';
+import {
+  computeNextRunAtIst,
+  isTodayIst,
+  isWithinHours,
+  isWithinDays,
+} from './temporal.ts';
 
 // ---------------- DATABASE INSTANCE LIFECYCLE ----------------
 let dbInstance: DatabaseSync | null = null;
@@ -558,6 +564,86 @@ const MIGRATIONS = [
       try { db.exec("ALTER TABLE applications ADD COLUMN cover_letter_text TEXT;"); } catch {}
     },
   },
+  {
+    version: 8,
+    name: '008_daily_discovery_scheduler_and_temporal_job_tracking',
+    up: (db: DatabaseSync) => {
+      // 1. Extend jobs table with temporal discovery, status and source tracking
+      try { db.exec("ALTER TABLE jobs ADD COLUMN posted_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN first_seen_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN last_seen_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN closed_at TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN source_id TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN external_job_id TEXT;"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN job_status TEXT DEFAULT 'Open';"); } catch {}
+      try { db.exec("ALTER TABLE jobs ADD COLUMN is_updated INTEGER DEFAULT 0;"); } catch {}
+
+      // Indices for high-performance daily filtering and status checks
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_jobs_first_seen_at ON jobs(first_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_jobs_posted_at ON jobs(posted_at);
+        CREATE INDEX IF NOT EXISTS idx_jobs_job_status ON jobs(job_status);
+        CREATE INDEX IF NOT EXISTS idx_jobs_source_id ON jobs(source_id);
+        CREATE INDEX IF NOT EXISTS idx_jobs_external_job_id ON jobs(external_job_id);
+      `);
+
+      // 2. Backfill existing jobs in SQLite
+      db.exec(`
+        UPDATE jobs
+        SET posted_at = CASE WHEN date_posted IS NOT NULL AND date_posted != '' THEN date_posted ELSE NULL END,
+            first_seen_at = COALESCE(created_at, datetime('now')),
+            last_seen_at = COALESCE(last_checked, created_at, datetime('now')),
+            external_job_id = CASE WHEN source_job_id IS NOT NULL AND source_job_id != '' THEN source_job_id ELSE NULL END,
+            job_status = CASE WHEN freshness_status = 'Closed' THEN 'Closed' WHEN freshness_status = 'Expired' THEN 'Expired' ELSE 'Open' END,
+            is_updated = 0
+        WHERE first_seen_at IS NULL;
+
+        UPDATE jobs
+        SET source_id = (
+          SELECT company_sources.id FROM company_sources
+          WHERE LOWER(company_sources.name) = LOWER(jobs.company)
+          LIMIT 1
+        )
+        WHERE source_id IS NULL;
+      `);
+
+      // 3. Scheduler State Table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS scheduler_state (
+          id TEXT PRIMARY KEY DEFAULT 'global_scheduler',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          schedule_time_ist TEXT NOT NULL DEFAULT '07:00',
+          interval_hours INTEGER NOT NULL DEFAULT 24,
+          last_run_at TEXT,
+          last_successful_run_at TEXT,
+          next_run_at TEXT,
+          execution_status TEXT NOT NULL DEFAULT 'idle',
+          last_error TEXT,
+          catch_up_enabled INTEGER NOT NULL DEFAULT 1,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      const now = new Date().toISOString();
+      const initialNextRun = computeNextRunAtIst('07:00', 24);
+      db.prepare(`
+        INSERT OR IGNORE INTO scheduler_state (
+          id, enabled, schedule_time_ist, interval_hours, next_run_at, execution_status, catch_up_enabled, updated_at
+        ) VALUES ('global_scheduler', 1, '07:00', 24, ?, 'idle', 1, ?)
+      `).run(initialNextRun, now);
+
+      // 4. Extend company_sources with crawl metrics and enabled status
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN http_status INTEGER DEFAULT 200;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN pages_fetched INTEGER DEFAULT 1;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN raw_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN new_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN updated_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN duplicates_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN closed_jobs_count INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN execution_duration_ms INTEGER DEFAULT 0;"); } catch {}
+      try { db.exec("ALTER TABLE company_sources ADD COLUMN is_enabled INTEGER DEFAULT 1;"); } catch {}
+    },
+  },
 ];
 
 function runMigrations(db: DatabaseSync): void {
@@ -900,6 +986,14 @@ function mapJobFromRow(row: any): Job {
     applicationUrl: row.application_url || row.original_url || '',
     datePosted: row.date_posted,
     lastChecked: row.last_checked,
+    postedAt: row.posted_at || (row.date_posted && row.date_posted.trim() !== '' ? row.date_posted : undefined),
+    firstSeenAt: row.first_seen_at || row.created_at || undefined,
+    lastSeenAt: row.last_seen_at || row.last_checked || undefined,
+    closedAt: row.closed_at || undefined,
+    sourceId: row.source_id || undefined,
+    externalJobId: row.external_job_id || row.source_job_id || undefined,
+    jobStatus: (row.job_status as any) || (row.freshness_status === 'Closed' ? 'Closed' : 'Open'),
+    isUpdated: intToBool(row.is_updated),
     isStartup: intToBool(row.is_startup),
     startupInfo: fromJson(row.startup_info, undefined),
     verificationReport: fromJson(row.verification_report, {
@@ -942,6 +1036,12 @@ export const jobsRepository = {
   saveJob(job: Job): Job {
     const db = getDatabase();
     const now = new Date().toISOString();
+    const postedAt = job.postedAt || (job.datePosted && job.datePosted.trim() !== '' ? job.datePosted : null);
+    const firstSeenAt = job.firstSeenAt || now;
+    const lastSeenAt = job.lastSeenAt || now;
+    const jobStatus = job.jobStatus || 'Open';
+    const isUpdated = job.isUpdated ? 1 : 0;
+
     const stmt = db.prepare(`
       INSERT INTO jobs (
         id, title, company, company_logo, company_website, location, country, work_arrangement,
@@ -951,6 +1051,7 @@ export const jobsRepository = {
         last_checked, is_startup, startup_info, verification_report,
         match_result, is_saved, is_dismissed, is_duplicate, duplicate_of_id,
         freshness_status, fresher_status, location_category, target_role_category, expiry_date, last_verified_at,
+        posted_at, first_seen_at, last_seen_at, closed_at, source_id, external_job_id, job_status, is_updated,
         created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
@@ -960,6 +1061,7 @@ export const jobsRepository = {
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -991,16 +1093,19 @@ export const jobsRepository = {
         startup_info = excluded.startup_info,
         verification_report = excluded.verification_report,
         match_result = excluded.match_result,
-        is_saved = excluded.is_saved,
-        is_dismissed = excluded.is_dismissed,
-        is_duplicate = excluded.is_duplicate,
-        duplicate_of_id = excluded.duplicate_of_id,
         freshness_status = excluded.freshness_status,
         fresher_status = excluded.fresher_status,
         location_category = excluded.location_category,
         target_role_category = excluded.target_role_category,
         expiry_date = excluded.expiry_date,
         last_verified_at = excluded.last_verified_at,
+        posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
+        last_seen_at = excluded.last_seen_at,
+        closed_at = excluded.closed_at,
+        source_id = COALESCE(excluded.source_id, jobs.source_id),
+        external_job_id = COALESCE(excluded.external_job_id, jobs.external_job_id),
+        job_status = excluded.job_status,
+        is_updated = CASE WHEN jobs.description != excluded.description OR jobs.title != excluded.title THEN 1 ELSE jobs.is_updated END,
         updated_at = excluded.updated_at
     `);
 
@@ -1044,6 +1149,14 @@ export const jobsRepository = {
       job.targetRoleCategory || null,
       job.expiryDate || null,
       job.lastVerifiedAt || job.lastChecked || now,
+      postedAt,
+      firstSeenAt,
+      lastSeenAt,
+      job.closedAt || null,
+      job.sourceId || null,
+      job.externalJobId || job.sourceJobId || null,
+      jobStatus,
+      isUpdated,
       now,
       now
     );
@@ -1179,6 +1292,221 @@ export const jobsRepository = {
       id
     );
     return this.getJobById(id);
+  },
+
+  updateExistingJobSeen(id: string, updates?: { description?: string; title?: string; datePosted?: string }): Job | null {
+    const db = getDatabase();
+    const existing = this.getJobById(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    let isUpdated = existing.isUpdated ? 1 : 0;
+    if (updates && ((updates.description && updates.description !== existing.description) || (updates.title && updates.title !== existing.title))) {
+      isUpdated = 1;
+    }
+    db.prepare(`
+      UPDATE jobs
+      SET last_seen_at = ?,
+          last_checked = ?,
+          job_status = 'Open',
+          freshness_status = 'Active',
+          closed_at = NULL,
+          is_updated = ?,
+          description = COALESCE(?, description),
+          title = COALESCE(?, title),
+          posted_at = COALESCE(?, posted_at),
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      now,
+      now,
+      isUpdated,
+      updates?.description || null,
+      updates?.title || null,
+      updates?.datePosted || null,
+      now,
+      id
+    );
+    return this.getJobById(id);
+  },
+
+  updateJobStatus(id: string, status: 'Open' | 'Closed' | 'Expired' | 'Unverified'): Job | null {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const closedAt = status === 'Closed' ? now : null;
+    db.prepare(`
+      UPDATE jobs
+      SET job_status = ?,
+          freshness_status = CASE WHEN ? = 'Closed' THEN 'Closed' WHEN ? = 'Expired' THEN 'Expired' ELSE freshness_status END,
+          closed_at = CASE WHEN ? = 'Closed' THEN ? ELSE closed_at END,
+          updated_at = ?
+      WHERE id = ?
+    `).run(status, status, status, status, closedAt, now, id);
+    return this.getJobById(id);
+  },
+
+  markMissingJobsClosedForCompany(companyId: string, companyName: string, activeKeys: Set<string>): { closedCount: number } {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const openJobs = db.prepare(`
+      SELECT id, title, company, original_url, canonical_url, external_job_id, source_job_id
+      FROM jobs
+      WHERE (source_id = ? OR LOWER(company) = LOWER(?))
+        AND job_status != 'Closed'
+    `).all(companyId, companyName) as any[];
+
+    let closedCount = 0;
+    const closeStmt = db.prepare(`
+      UPDATE jobs
+      SET job_status = 'Closed',
+          freshness_status = 'Closed',
+          closed_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+
+    for (const job of openJobs) {
+      const extId = job.external_job_id || job.source_job_id || '';
+      const url = job.original_url || job.canonical_url || '';
+      const normKey = `${(job.company || '').toLowerCase().replace(/[^a-z0-9]/g, '')}::${(job.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+      const isFound = (extId && activeKeys.has(extId)) ||
+                      (url && activeKeys.has(url)) ||
+                      activeKeys.has(normKey);
+
+      if (!isFound) {
+        closeStmt.run(now, now, job.id);
+        closedCount++;
+      }
+    }
+
+    if (closedCount > 0) {
+      activityLogsRepository.log(
+        'jobs_closed_detected',
+        'source',
+        companyId,
+        `Marked ${closedCount} missing vacancy listing(s) as Closed for ${companyName}.`
+      );
+    }
+
+    return { closedCount };
+  },
+
+  getDailyDiscoveries(
+    timeframe: 'today' | '24h' | '7d' | '30d' = 'today',
+    filters: {
+      role?: string;
+      experience?: string;
+      location?: string;
+      status?: string;
+    } = {}
+  ): {
+    jobs: Job[];
+    stats: {
+      newlyDiscoveredToday: number;
+      newlyPostedLast24h: number;
+      newOpeningsLast7d: number;
+      recentlyUpdated: number;
+      fresherJobs: number;
+      internships: number;
+      remoteIndia: number;
+      byRole: Record<string, number>;
+      byLocation: Record<string, number>;
+    };
+  } {
+    const allJobs = this.getAllJobs();
+
+    let newlyDiscoveredToday = 0;
+    let newlyPostedLast24h = 0;
+    let newOpeningsLast7d = 0;
+    let recentlyUpdated = 0;
+    let fresherJobs = 0;
+    let internships = 0;
+    let remoteIndia = 0;
+    const byRole: Record<string, number> = {};
+    const byLocation: Record<string, number> = {};
+
+    for (const j of allJobs) {
+      if (isTodayIst(j.firstSeenAt)) newlyDiscoveredToday++;
+      if (j.postedAt && isWithinHours(j.postedAt, 24)) newlyPostedLast24h++;
+      if (isWithinDays(j.firstSeenAt, 7)) newOpeningsLast7d++;
+      if (j.isUpdated || (j.lastSeenAt && j.firstSeenAt && j.lastSeenAt > j.firstSeenAt)) recentlyUpdated++;
+      if (j.fresherStatus === 'Fresher') fresherJobs++;
+      if (j.employmentType === 'Internship' || j.experienceLevel === 'Intern') internships++;
+      if (j.workArrangement === 'Remote' || j.locationCategory === 'India remote') remoteIndia++;
+
+      const roleCat = j.targetRoleCategory || 'Other Software Roles';
+      byRole[roleCat] = (byRole[roleCat] || 0) + 1;
+
+      const locKey = j.location.split(',')[0].trim();
+      if (locKey) {
+        byLocation[locKey] = (byLocation[locKey] || 0) + 1;
+      }
+    }
+
+    let filtered = allJobs.filter((j) => {
+      if (timeframe === 'today') {
+        return isTodayIst(j.firstSeenAt) || (j.postedAt && isTodayIst(j.postedAt));
+      } else if (timeframe === '24h') {
+        return isWithinHours(j.firstSeenAt, 24) || (j.postedAt && isWithinHours(j.postedAt, 24));
+      } else if (timeframe === '7d') {
+        return isWithinDays(j.firstSeenAt, 7) || (j.postedAt && isWithinDays(j.postedAt, 7));
+      } else if (timeframe === '30d') {
+        return isWithinDays(j.firstSeenAt, 30) || (j.postedAt && isWithinDays(j.postedAt, 30));
+      }
+      return true;
+    });
+
+    // If today has no new discoveries yet, return open catalog jobs
+    if (filtered.length === 0 && timeframe === 'today') {
+      filtered = allJobs.filter((j) => j.jobStatus !== 'Closed').slice(0, 30);
+    }
+
+    if (filters.role && filters.role !== 'all') {
+      const q = filters.role.toLowerCase();
+      filtered = filtered.filter((j) =>
+        j.title.toLowerCase().includes(q) ||
+        (j.targetRoleCategory || '').toLowerCase().includes(q) ||
+        j.requiredSkills.some((s) => s.toLowerCase().includes(q))
+      );
+    }
+
+    if (filters.experience && filters.experience !== 'all') {
+      if (filters.experience === 'fresher') {
+        filtered = filtered.filter((j) => j.fresherStatus === 'Fresher');
+      } else if (filters.experience === 'internship') {
+        filtered = filtered.filter((j) => j.employmentType === 'Internship' || j.experienceLevel === 'Intern');
+      } else if (filters.experience === 'experienced') {
+        filtered = filtered.filter((j) => j.fresherStatus === 'Experienced');
+      }
+    }
+
+    if (filters.location && filters.location !== 'all') {
+      const locQ = filters.location.toLowerCase();
+      if (locQ === 'remote_india') {
+        filtered = filtered.filter((j) => j.workArrangement === 'Remote' || j.locationCategory === 'India remote');
+      } else {
+        filtered = filtered.filter((j) => j.location.toLowerCase().includes(locQ));
+      }
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      filtered = filtered.filter((j) => (j.jobStatus || 'Open') === filters.status);
+    }
+
+    return {
+      jobs: filtered,
+      stats: {
+        newlyDiscoveredToday,
+        newlyPostedLast24h,
+        newOpeningsLast7d,
+        recentlyUpdated,
+        fresherJobs,
+        internships,
+        remoteIndia,
+        byRole,
+        byLocation,
+      },
+    };
   },
 };
 
@@ -2149,6 +2477,103 @@ export const companySourcesRepository = {
     }
   },
 
+  recordDetailedCrawlResult(
+    id: string,
+    metrics: {
+      httpStatus: number;
+      pagesFetched: number;
+      rawJobs: number;
+      newJobs: number;
+      updatedJobs: number;
+      duplicates: number;
+      closedJobs: number;
+      durationMs: number;
+      error?: string;
+    }
+  ): void {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    if (metrics.error) {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?,
+            last_error = ?,
+            http_status = ?,
+            pages_fetched = ?,
+            raw_jobs_count = ?,
+            new_jobs_count = ?,
+            updated_jobs_count = ?,
+            duplicates_count = ?,
+            closed_jobs_count = ?,
+            execution_duration_ms = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        now,
+        metrics.error,
+        metrics.httpStatus,
+        metrics.pagesFetched,
+        metrics.rawJobs,
+        metrics.newJobs,
+        metrics.updatedJobs,
+        metrics.duplicates,
+        metrics.closedJobs,
+        metrics.durationMs,
+        now,
+        id
+      );
+    } else {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?,
+            last_successful_crawl_at = ?,
+            last_error = NULL,
+            status = 'active',
+            jobs_count = ?,
+            http_status = ?,
+            pages_fetched = ?,
+            raw_jobs_count = ?,
+            new_jobs_count = ?,
+            updated_jobs_count = ?,
+            duplicates_count = ?,
+            closed_jobs_count = ?,
+            execution_duration_ms = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        now,
+        now,
+        metrics.rawJobs,
+        metrics.httpStatus,
+        metrics.pagesFetched,
+        metrics.rawJobs,
+        metrics.newJobs,
+        metrics.updatedJobs,
+        metrics.duplicates,
+        metrics.closedJobs,
+        metrics.durationMs,
+        now,
+        id
+      );
+    }
+  },
+
+  toggleEnabled(id: string, isEnabled?: boolean): CompanySource | null {
+    const current = this.getById(id);
+    if (!current) return null;
+    const db = getDatabase();
+    const newEnabled = isEnabled !== undefined ? isEnabled : !(current.isEnabled ?? true);
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE company_sources
+      SET is_enabled = ?,
+          status = CASE WHEN ? = 1 THEN 'active' ELSE 'disabled' END,
+          updated_at = ?
+      WHERE id = ?
+    `).run(boolToInt(newEnabled), boolToInt(newEnabled), now, id);
+    return this.getById(id);
+  },
+
   mapRow(r: any): CompanySource {
     return {
       id: r.id,
@@ -2163,9 +2588,139 @@ export const companySourcesRepository = {
       lastError: r.last_error || undefined,
       crawlFrequencyHours: Number(r.crawl_frequency_hours || 6),
       jobsCount: Number(r.jobs_count || 0),
+      httpStatus: r.http_status != null ? Number(r.http_status) : undefined,
+      pagesFetched: r.pages_fetched != null ? Number(r.pages_fetched) : 1,
+      rawJobsCount: Number(r.raw_jobs_count || 0),
+      newJobsCount: Number(r.new_jobs_count || 0),
+      updatedJobsCount: Number(r.updated_jobs_count || 0),
+      duplicatesCount: Number(r.duplicates_count || 0),
+      closedJobsCount: Number(r.closed_jobs_count || 0),
+      executionDurationMs: Number(r.execution_duration_ms || 0),
+      isEnabled: r.is_enabled != null ? intToBool(r.is_enabled) : true,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  },
+};
+
+// 14. SCHEDULER REPOSITORY (Persistent Asia/Kolkata Scheduler State)
+export const schedulerRepository = {
+  getState(): SchedulerState {
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM scheduler_state WHERE id = ?').get('global_scheduler') as any;
+    if (!row) {
+      return this.saveInitialState();
+    }
+    return {
+      id: row.id,
+      enabled: intToBool(row.enabled),
+      scheduleTimeIst: row.schedule_time_ist || '07:00',
+      intervalHours: Number(row.interval_hours || 24),
+      lastRunAt: row.last_run_at || undefined,
+      lastSuccessfulRunAt: row.last_successful_run_at || undefined,
+      nextRunAt: row.next_run_at || undefined,
+      executionStatus: (row.execution_status as any) || 'idle',
+      lastError: row.last_error || undefined,
+      catchUpEnabled: intToBool(row.catch_up_enabled),
+      updatedAt: row.updated_at,
+    };
+  },
+
+  saveInitialState(): SchedulerState {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const nextRun = computeNextRunAtIst('07:00', 24);
+    db.prepare(`
+      INSERT OR REPLACE INTO scheduler_state (
+        id, enabled, schedule_time_ist, interval_hours, next_run_at, execution_status, catch_up_enabled, updated_at
+      ) VALUES ('global_scheduler', 1, '07:00', 24, ?, 'idle', 1, ?)
+    `).run(nextRun, now);
+
+    return {
+      id: 'global_scheduler',
+      enabled: true,
+      scheduleTimeIst: '07:00',
+      intervalHours: 24,
+      nextRunAt: nextRun,
+      executionStatus: 'idle',
+      catchUpEnabled: true,
+      updatedAt: now,
+    };
+  },
+
+  updateState(updates: Partial<SchedulerState>): SchedulerState {
+    const db = getDatabase();
+    const current = this.getState();
+    const merged: SchedulerState = {
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (updates.scheduleTimeIst || updates.intervalHours !== undefined) {
+      merged.nextRunAt = computeNextRunAtIst(merged.scheduleTimeIst, merged.intervalHours);
+    }
+
+    db.prepare(`
+      UPDATE scheduler_state
+      SET enabled = ?, schedule_time_ist = ?, interval_hours = ?,
+          last_run_at = ?, last_successful_run_at = ?, next_run_at = ?,
+          execution_status = ?, last_error = ?, catch_up_enabled = ?, updated_at = ?
+      WHERE id = 'global_scheduler'
+    `).run(
+      boolToInt(merged.enabled),
+      merged.scheduleTimeIst,
+      merged.intervalHours,
+      merged.lastRunAt || null,
+      merged.lastSuccessfulRunAt || null,
+      merged.nextRunAt || null,
+      merged.executionStatus,
+      merged.lastError || null,
+      boolToInt(merged.catchUpEnabled),
+      merged.updatedAt
+    );
+
+    return merged;
+  },
+
+  recordRunStart(): SchedulerState {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE scheduler_state
+      SET execution_status = 'running', last_run_at = ?, updated_at = ?
+      WHERE id = 'global_scheduler'
+    `).run(now, now);
+    return this.getState();
+  },
+
+  recordRunComplete(success: boolean, error?: string): SchedulerState {
+    const current = this.getState();
+    const now = new Date().toISOString();
+    const nextRun = computeNextRunAtIst(current.scheduleTimeIst, current.intervalHours);
+
+    const db = getDatabase();
+    if (success) {
+      db.prepare(`
+        UPDATE scheduler_state
+        SET execution_status = 'completed',
+            last_successful_run_at = ?,
+            next_run_at = ?,
+            last_error = NULL,
+            updated_at = ?
+        WHERE id = 'global_scheduler'
+      `).run(now, nextRun, now);
+    } else {
+      db.prepare(`
+        UPDATE scheduler_state
+        SET execution_status = 'failed',
+            next_run_at = ?,
+            last_error = ?,
+            updated_at = ?
+        WHERE id = 'global_scheduler'
+      `).run(nextRun, error || 'Discovery run failed', now);
+    }
+    return this.getState();
   },
 };
 
