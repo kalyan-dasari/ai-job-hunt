@@ -212,6 +212,16 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'daily' && (
+          <DailyDiscoveriesView
+            profile={profile}
+            onSelectJob={(job) => setSelectedJobDetails(job)}
+            onPrepareApplication={(job) => setSelectedJobToApply(job)}
+            onToggleSave={handleToggleSave}
+            onToggleDismiss={handleToggleDismiss}
+          />
+        )}
+
         {activeTab === 'discovery' && (
           <JobDiscoveryView
             jobs={jobs}
