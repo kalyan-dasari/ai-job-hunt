@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar, NavTab } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
+import { DailyDiscoveriesView } from './components/DailyDiscoveriesView';
 import { JobDiscoveryView } from './components/JobDiscoveryView';
 import { StartupJobsView } from './components/StartupJobsView';
 import { ResumeProfileView } from './components/ResumeProfileView';
@@ -208,6 +209,16 @@ export default function App() {
             onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
             onSelectJob={(job) => setSelectedJobDetails(job)}
             onPrepareApplication={(job) => setSelectedJobToApply(job)}
+          />
+        )}
+
+        {activeTab === 'daily' && (
+          <DailyDiscoveriesView
+            profile={profile}
+            onSelectJob={(job) => setSelectedJobDetails(job)}
+            onPrepareApplication={(job) => setSelectedJobToApply(job)}
+            onToggleSave={handleToggleSave}
+            onToggleDismiss={handleToggleDismiss}
           />
         )}
 

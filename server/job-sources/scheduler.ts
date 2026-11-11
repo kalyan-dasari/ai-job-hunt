@@ -5,23 +5,30 @@ import {
   jobsRepository,
   ingestionRunsRepository,
   activityLogsRepository,
+  schedulerRepository,
 } from '../database.ts';
 import { calculateDossierMatch } from '../matching.ts';
+import {
+  computeNextRunAtIst,
+  isCatchUpNeeded,
+  formatIstDateTime,
+} from '../temporal.ts';
+import { SchedulerState } from '../../src/types/connector.ts';
 
 export interface IngestionOptions {
   triggerType?: 'manual' | 'scheduled';
   sourceIds?: string[];
+  companyIds?: string[];
   criteria?: FetchCriteria;
   forceExternal?: boolean;
+  isCatchUp?: boolean;
 }
 
 export class IngestionService {
   private isIngestionRunning: boolean = false;
   private schedulerTimer: NodeJS.Timeout | null = null;
-  private schedulerIntervalMs: number = 60 * 60 * 1000; // 1 hour default
-  private runsSinceLastExternalFetch: number = 0;
-  private lastRunAt: string | null = null;
-  private isSchedulerEnabled: boolean = true;
+  private catchUpTimeout: NodeJS.Timeout | null = null;
+  private checkIntervalMs: number = 60 * 1000; // Check every 60 seconds
 
   public isRunning(): boolean {
     return this.isIngestionRunning;
@@ -31,45 +38,73 @@ export class IngestionService {
     return this.schedulerTimer !== null;
   }
 
-  public getConfig(): { enabled: boolean; intervalMinutes: number; lastRunAt: string | null; isRunning: boolean } {
+  public getConfig(): SchedulerState & { isRunning: boolean; formattedNextRunIst: string; formattedLastRunIst: string } {
+    const state = schedulerRepository.getState();
     return {
-      enabled: this.isSchedulerEnabled && this.schedulerTimer !== null,
-      intervalMinutes: Math.round(this.schedulerIntervalMs / (60 * 1000)),
-      lastRunAt: this.lastRunAt,
+      ...state,
       isRunning: this.isIngestionRunning,
+      formattedNextRunIst: formatIstDateTime(state.nextRunAt),
+      formattedLastRunIst: formatIstDateTime(state.lastRunAt),
     };
   }
 
-  public updateConfig(enabled: boolean, intervalMinutes: number): void {
-    const validMinutes = Math.max(5, Math.min(1440, intervalMinutes || 60));
-    this.schedulerIntervalMs = validMinutes * 60 * 1000;
-    this.isSchedulerEnabled = enabled;
+  public updateConfig(updates: {
+    enabled?: boolean;
+    scheduleTimeIst?: string;
+    intervalHours?: number;
+    catchUpEnabled?: boolean;
+  }): SchedulerState {
+    const current = schedulerRepository.getState();
+    const updated = schedulerRepository.updateState({
+      enabled: updates.enabled !== undefined ? updates.enabled : current.enabled,
+      scheduleTimeIst: updates.scheduleTimeIst || current.scheduleTimeIst || '07:00',
+      intervalHours: updates.intervalHours !== undefined ? Math.max(1, Math.min(168, updates.intervalHours)) : current.intervalHours,
+      catchUpEnabled: updates.catchUpEnabled !== undefined ? updates.catchUpEnabled : current.catchUpEnabled,
+    });
 
-    if (enabled) {
-      this.startScheduler(validMinutes);
+    if (updated.enabled) {
+      this.startScheduler();
     } else {
       this.stopScheduler();
     }
+
+    return updated;
   }
 
   /**
-   * Run full discovery and ingestion using the Dossier JobDiscoveryAgent
+   * Run full discovery and ingestion across all active ATS & company sources
    */
   public async runIngestion(options: IngestionOptions = {}): Promise<IngestionRunRecord> {
     if (this.isIngestionRunning) {
-      throw new Error('Ingestion is already running. Please wait for the current run to complete.');
+      throw new Error('Discovery is already running. Please wait for the current run to complete.');
     }
 
     this.isIngestionRunning = true;
-    this.lastRunAt = new Date().toISOString();
+    schedulerRepository.recordRunStart();
+
+    const triggerType = options.triggerType || 'manual';
+    console.log(`[Scheduler] Starting discovery pass (trigger: ${triggerType}, isCatchUp: ${Boolean(options.isCatchUp)})...`);
+
     try {
       const { run } = await jobDiscoveryAgent.discover({
         sourceIds: options.sourceIds,
-        triggerType: options.triggerType || 'manual',
+        companyIds: options.companyIds,
+        triggerType,
         forceExternal: options.forceExternal,
         criteria: options.criteria,
       });
+
+      // Local catalog maintenance: refresh freshness and match scores
+      await this.refreshLocalCatalog();
+
+      schedulerRepository.recordRunComplete(true);
+      console.log(`[Scheduler] Discovery pass completed successfully: +${run.jobsAdded} new openings, ${run.duplicatesFiltered} duplicates.`);
       return run;
+    } catch (err: any) {
+      const errMsg = err.message || String(err);
+      schedulerRepository.recordRunComplete(false, errMsg);
+      console.error('[Scheduler] Discovery pass failed:', errMsg);
+      throw err;
     } finally {
       this.isIngestionRunning = false;
     }
@@ -90,14 +125,14 @@ export class IngestionService {
       if (job.isDismissed) continue;
 
       // Check age for freshness status updates
-      const postedTime = new Date(job.datePosted).getTime();
+      const postedTime = job.postedAt ? new Date(job.postedAt).getTime() : new Date(job.datePosted).getTime();
       const ageDays = (now - postedTime) / (1000 * 60 * 60 * 24);
 
       if (ageDays > 30 && job.freshnessStatus !== 'Expired' && job.freshnessStatus !== 'Closed') {
         jobsRepository.updateFreshness(job.id, 'Expired');
         staleCount++;
-      } else if (ageDays > 14 && job.freshnessStatus === 'Newly Discovered') {
-        jobsRepository.updateFreshness(job.id, 'Active');
+      } else if (ageDays <= 14 && job.freshnessStatus === 'Active') {
+        // Active verified
       }
 
       // Recalculate intelligent match
@@ -110,45 +145,81 @@ export class IngestionService {
       'local_catalog_refreshed',
       'scheduler',
       null,
-      `Local job processing: refreshed ${refreshedCount} candidate matches without spending external API quotas.`
+      `Local job processing: refreshed ${refreshedCount} candidate matches.`
     );
 
     return { refreshedCount, staleCount };
   }
 
   /**
-   * Starts the hourly scheduler.
-   * Separates:
-   * A. Hourly local job processing & match recalculation (zero API quota spent).
-   * B. Controlled, quota-preserving external discovery using rotated queries.
+   * Starts the persistent background scheduler.
+   * Handles:
+   * 1. Startup catch-up discovery if last run > 24 hours ago.
+   * 2. Calculation of next execution time anchored to Asia/Kolkata (e.g. 7:00 AM IST).
+   * 3. 60-second periodic heartbeat checking if next scheduled time has arrived.
    */
-  public startScheduler(intervalMinutes: number = 60): void {
-    if (this.schedulerTimer) {
-      clearInterval(this.schedulerTimer);
+  public startScheduler(): void {
+    this.stopScheduler();
+
+    const state = schedulerRepository.getState();
+    if (!state.enabled) {
+      console.log('[Scheduler] Background scheduler is disabled in settings.');
+      return;
     }
-    this.schedulerIntervalMs = Math.max(5, intervalMinutes) * 60 * 1000;
+
+    // 1. Startup Catch-Up Check
+    if (state.catchUpEnabled && isCatchUpNeeded(state.lastSuccessfulRunAt, state.intervalHours || 24)) {
+      console.log(`[Scheduler] Catch-up needed (last successful discovery: ${state.lastSuccessfulRunAt || 'Never'}). Scheduling catch-up run in 3 seconds...`);
+      this.catchUpTimeout = setTimeout(async () => {
+        try {
+          if (!this.isIngestionRunning) {
+            console.log('[Scheduler] Executing automated startup catch-up discovery...');
+            await this.runIngestion({ triggerType: 'scheduled', isCatchUp: true });
+          }
+        } catch (err) {
+          console.error('[Scheduler] Catch-up discovery error:', err);
+        }
+      }, 3000);
+    }
+
+    // 2. Compute and persist initial nextRunAt if not set or in the past
+    const now = Date.now();
+    let nextRunTime = state.nextRunAt ? new Date(state.nextRunAt).getTime() : 0;
+    if (isNaN(nextRunTime) || nextRunTime <= now) {
+      const nextRunAtIso = computeNextRunAtIst(state.scheduleTimeIst || '07:00', state.intervalHours || 24);
+      schedulerRepository.updateState({ nextRunAt: nextRunAtIso });
+      console.log(`[Scheduler] Next daily discovery scheduled for ${formatIstDateTime(nextRunAtIso)}`);
+    } else {
+      console.log(`[Scheduler] Next daily discovery scheduled for ${formatIstDateTime(state.nextRunAt)}`);
+    }
+
+    // 3. Heartbeat loop (every 60s)
     this.schedulerTimer = setInterval(async () => {
       try {
-        console.log('[Scheduler] Executing hourly local catalog maintenance...');
-        await this.refreshLocalCatalog();
+        const currentState = schedulerRepository.getState();
+        if (!currentState.enabled || this.isIngestionRunning) return;
 
-        // Perform external discovery every 6 hours (or when needed) to respect monthly quota limits
-        this.runsSinceLastExternalFetch++;
-        if (this.runsSinceLastExternalFetch >= 6) {
-          this.runsSinceLastExternalFetch = 0;
-          console.log('[Scheduler] Executing quota-conscious external discovery pass...');
-          await this.runIngestion({ triggerType: 'scheduled' });
+        if (currentState.nextRunAt) {
+          const dueTime = new Date(currentState.nextRunAt).getTime();
+          if (Date.now() >= dueTime) {
+            console.log(`[Scheduler] Target schedule time arrived (${formatIstDateTime(currentState.nextRunAt)}). Triggering daily discovery...`);
+            await this.runIngestion({ triggerType: 'scheduled' });
+          }
         }
       } catch (err) {
-        console.error('[Scheduler] Error in background scheduler loop:', err);
+        console.error('[Scheduler] Error in heartbeat loop:', err);
       }
-    }, this.schedulerIntervalMs);
+    }, this.checkIntervalMs);
   }
 
   public stopScheduler(): void {
     if (this.schedulerTimer) {
       clearInterval(this.schedulerTimer);
       this.schedulerTimer = null;
+    }
+    if (this.catchUpTimeout) {
+      clearTimeout(this.catchUpTimeout);
+      this.catchUpTimeout = null;
     }
   }
 }

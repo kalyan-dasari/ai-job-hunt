@@ -16,6 +16,7 @@ import jobpilotIcon from '../assets/images/jobpilot_app_icon_1792135299458.jpg';
 
 export type NavTab =
   | 'dashboard'
+  | 'daily'
   | 'discovery'
   | 'startups'
   | 'applications'
@@ -74,6 +75,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('daily')}
+            className={`px-3 py-1.5 text-xs xl:text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+              activeTab === 'daily'
+                ? 'bg-sky-600 text-white shadow-sm font-semibold'
+                : 'text-sky-300 hover:text-white hover:bg-slate-800/40'
+            }`}
+          >
+            <span>Daily Feed</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           </button>
           <button
             onClick={() => setActiveTab('discovery')}
@@ -191,6 +203,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab('daily')}
+          className={`px-2.5 py-1 rounded font-medium whitespace-nowrap ${
+            activeTab === 'daily' ? 'bg-sky-600 text-white font-semibold' : 'text-sky-300'
+          }`}
+        >
+          Daily Feed
         </button>
         <button
           onClick={() => setActiveTab('discovery')}

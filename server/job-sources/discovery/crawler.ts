@@ -45,6 +45,8 @@ export class CareerPageCrawler {
             success: fetchRes.success,
             jobs: fetchRes.jobs,
             sourceType: 'ATS',
+            httpStatus: fetchRes.success ? 200 : 500,
+            pagesFetched: 1,
             error: fetchRes.error,
           };
         } catch (err: any) {

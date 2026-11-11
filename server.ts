@@ -141,17 +141,60 @@ app.get('/api/scheduler', (_req: Request, res: Response) => {
 
 app.post('/api/scheduler/config', (req: Request, res: Response) => {
   try {
-    const { enabled, intervalMinutes } = req.body;
-    ingestionService.updateConfig(
-      typeof enabled === 'boolean' ? enabled : true,
-      Number(intervalMinutes) || 60
-    );
+    const { enabled, scheduleTimeIst, intervalHours, catchUpEnabled, intervalMinutes } = req.body;
+    const computedHours = intervalHours !== undefined ? Number(intervalHours) : (intervalMinutes ? Math.round(Number(intervalMinutes) / 60) : 24);
+    const updated = ingestionService.updateConfig({
+      enabled: typeof enabled === 'boolean' ? enabled : undefined,
+      scheduleTimeIst: typeof scheduleTimeIst === 'string' ? scheduleTimeIst : undefined,
+      intervalHours: computedHours,
+      catchUpEnabled: typeof catchUpEnabled === 'boolean' ? catchUpEnabled : undefined,
+    });
     res.json({
       message: 'Scheduler configuration updated successfully',
       config: ingestionService.getConfig(),
     });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to update scheduler configuration', details: err.message });
+  }
+});
+
+app.post('/api/scheduler/run-now', async (_req: Request, res: Response) => {
+  try {
+    if (ingestionService.isRunning()) {
+      res.status(409).json({ error: 'Discovery is already running. Please wait for the current run to complete.' });
+      return;
+    }
+    const run = await ingestionService.runIngestion({ triggerType: 'manual' });
+    res.json({ success: true, run, config: ingestionService.getConfig() });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Manual discovery run failed', details: err.message });
+  }
+});
+
+// Daily Discoveries Endpoint
+app.get('/api/jobs/daily', (req: Request, res: Response) => {
+  try {
+    const timeframe = (req.query.timeframe as any) || 'today';
+    const role = req.query.role as string | undefined;
+    const experience = req.query.experience as string | undefined;
+    const location = req.query.location as string | undefined;
+    const status = req.query.status as string | undefined;
+
+    const result = jobsRepository.getDailyDiscoveries(timeframe, {
+      role,
+      experience,
+      location,
+      status,
+    });
+
+    res.json({
+      jobs: result.jobs,
+      stats: result.stats,
+      scheduler: ingestionService.getConfig(),
+      timeframe,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load daily discoveries', details: err.message });
   }
 });
 
@@ -1504,6 +1547,57 @@ app.post('/api/companies/:id/test', async (req: Request, res: Response) => {
   }
 });
 
+// Toggle company source enabled
+app.post('/api/companies/:id/toggle-enabled', (req: Request, res: Response) => {
+  try {
+    const updated = companySourcesRepository.toggleEnabled(req.params.id, req.body?.isEnabled);
+    if (!updated) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to toggle source enabled status', details: err.message });
+  }
+});
+
+// Retry a single company source
+app.post('/api/companies/:id/retry', async (req: Request, res: Response) => {
+  try {
+    const company = companySourcesRepository.getById(req.params.id);
+    if (!company) {
+      res.status(404).json({ error: `Company source '${req.params.id}' not found` });
+      return;
+    }
+    const result = await jobDiscoveryAgent.discover({
+      companyIds: [company.id],
+      triggerType: 'manual',
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Retry source failed', details: err.message });
+  }
+});
+
+// Retry all failed company sources
+app.post('/api/companies/retry-failed', async (_req: Request, res: Response) => {
+  try {
+    const all = companySourcesRepository.getAll();
+    const failedIds = all.filter((c) => (c.lastError && c.lastError.length > 0) || c.status === 'error').map((c) => c.id);
+    if (failedIds.length === 0) {
+      res.json({ message: 'No failed sources to retry', retriedCount: 0 });
+      return;
+    }
+    const result = await jobDiscoveryAgent.discover({
+      companyIds: failedIds,
+      triggerType: 'manual',
+    });
+    res.json({ ...result, retriedCount: failedIds.length });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Retry failed sources failed', details: err.message });
+  }
+});
+
 // Inspect arbitrary URL for ATS / JSON-LD / career links
 app.post('/api/companies/detect', async (req: Request, res: Response) => {
   try {
@@ -1681,7 +1775,7 @@ app.get('/api/export', (req: Request, res: Response) => {
 async function startServer() {
   initDatabase();
   console.log(`JobPilot AI SQLite Database connected at ${getDatabasePath()}`);
-  ingestionService.startScheduler(60);
+  ingestionService.startScheduler();
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));

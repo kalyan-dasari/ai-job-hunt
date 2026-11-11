@@ -37,3 +37,4 @@ main().catch(err => {
   console.error('Migration test error:', err);
   process.exit(1);
 });
+

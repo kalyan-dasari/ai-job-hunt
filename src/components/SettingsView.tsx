@@ -44,12 +44,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [newIndustry, setNewIndustry] = useState('');
 
   // Scheduler state
-  const [schedulerInterval, setSchedulerInterval] = useState('60');
+  const [scheduleTimeIst, setScheduleTimeIst] = useState('07:00');
+  const [scheduleIntervalHours, setScheduleIntervalHours] = useState(24);
+  const [catchUpEnabled, setCatchUpEnabled] = useState(true);
   const [autoDiscoveryEnabled, setAutoDiscoveryEnabled] = useState(true);
+  const [schedulerConfig, setSchedulerConfig] = useState<any>(null);
+  const [isDiscoveringNow, setIsDiscoveringNow] = useState(false);
   const [schedulerMsg, setSchedulerMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData(profile);
+    api.getSchedulerConfig().then((cfg) => {
+      setSchedulerConfig(cfg);
+      setAutoDiscoveryEnabled(cfg.enabled ?? true);
+      setScheduleTimeIst(cfg.scheduleTimeIst || '07:00');
+      setScheduleIntervalHours(cfg.intervalHours || 24);
+      setCatchUpEnabled(cfg.catchUpEnabled ?? true);
+    }).catch(() => {});
   }, [profile]);
 
   const handleSavePreferences = async () => {
@@ -144,21 +155,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleUpdateSchedulerConfig = async () => {
     try {
-      const res = await fetch('/api/scheduler/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          intervalMinutes: parseInt(schedulerInterval, 10),
-          enabled: autoDiscoveryEnabled,
-        }),
+      const res = await api.updateSchedulerConfig({
+        enabled: autoDiscoveryEnabled,
+        scheduleTimeIst,
+        intervalHours: Number(scheduleIntervalHours),
+        catchUpEnabled,
       });
-      if (res.ok) {
-        setSchedulerMsg('Discovery schedule configuration updated successfully.');
-        setTimeout(() => setSchedulerMsg(null), 3500);
-      }
-    } catch {
-      setSchedulerMsg('Schedule updated locally.');
+      setSchedulerConfig(res.config);
+      setSchedulerMsg('Discovery schedule configuration updated successfully.');
       setTimeout(() => setSchedulerMsg(null), 3500);
+    } catch (err: any) {
+      setSchedulerMsg(`Error: ${err?.message || 'Failed to update schedule'}`);
+      setTimeout(() => setSchedulerMsg(null), 3500);
+    }
+  };
+
+  const handleRunDiscoveryNow = async () => {
+    setIsDiscoveringNow(true);
+    try {
+      const res = await api.runDiscoveryNow();
+      setSchedulerMsg(`Discovery pass finished: +${res.run?.jobsAdded || 0} openings.`);
+      setSchedulerConfig(res.config);
+      await onRefreshData();
+      setTimeout(() => setSchedulerMsg(null), 4000);
+    } catch (err: any) {
+      setSchedulerMsg(`Discovery failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsDiscoveringNow(false);
     }
   };
 
@@ -447,54 +470,92 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Section 2: Discovery Scheduler & Refresh Rate */}
+      {/* Section 2: Daily Discovery Scheduler & Persistent Background Engine */}
       <div className="bg-[#111726] border border-slate-800/80 rounded-2xl p-6 space-y-5">
-        <div className="border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-white font-bold text-base">
-            <Clock className="w-5 h-5 text-emerald-400" />
-            <h2>Automated Discovery Scheduler</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-3">
+          <div>
+            <div className="flex items-center gap-2 text-white font-bold text-base">
+              <Clock className="w-5 h-5 text-emerald-400" />
+              <h2>Automated Daily Discovery Scheduler</h2>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Configures continuous, server-side background job discovery across 32 company boards and 11 ATS platforms.
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Configure periodic background discovery passes across active Indian company career boards and ATS adapters.
-          </p>
+
+          <button
+            onClick={handleRunDiscoveryNow}
+            disabled={isDiscoveringNow}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-50 transition-colors shadow-sm shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isDiscoveringNow ? 'animate-spin' : ''}`} />
+            <span>{isDiscoveringNow ? 'Running Discovery...' : 'Run Discovery Now'}</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-slate-900 rounded-xl border border-slate-800">
               <div>
                 <span className="text-xs font-medium text-white block">Background Scheduler</span>
-                <span className="text-[11px] text-slate-400">Automates regular vacancy discovery passes</span>
+                <span className="text-[11px] text-slate-400">Enables automated recurring discovery passes</span>
               </div>
               <input
                 type="checkbox"
                 checked={autoDiscoveryEnabled}
                 onChange={(e) => setAutoDiscoveryEnabled(e.target.checked)}
-                className="w-4 h-4 rounded text-sky-600 focus:ring-0 bg-slate-800 border-slate-700"
+                className="w-4 h-4 rounded text-sky-600 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Discovery Refresh Interval</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Daily Execution Time (Asia/Kolkata / IST)
+              </label>
+              <input
+                type="text"
+                value={scheduleTimeIst}
+                onChange={(e) => setScheduleTimeIst(e.target.value)}
+                placeholder="07:00"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+              />
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5 block">
+                Format: HH:mm in 24-hour time. Default is 07:00 AM IST.
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Discovery Frequency</label>
               <select
-                value={schedulerInterval}
-                onChange={(e) => setSchedulerInterval(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                value={String(scheduleIntervalHours)}
+                onChange={(e) => setScheduleIntervalHours(Number(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
               >
-                <option value="30">Every 30 Minutes (Aggressive)</option>
-                <option value="60">Every 1 Hour (Recommended)</option>
-                <option value="180">Every 3 Hours</option>
-                <option value="360">Every 6 Hours (Standard)</option>
-                <option value="720">Every 12 Hours</option>
-                <option value="1440">Every 24 Hours</option>
+                <option value="6">Every 6 Hours (Aggressive)</option>
+                <option value="12">Every 12 Hours</option>
+                <option value="24">Every 24 Hours (Recommended Daily Cycle)</option>
+                <option value="48">Every 48 Hours</option>
               </select>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-slate-900 rounded-xl border border-slate-800">
+              <div>
+                <span className="text-xs font-medium text-white block">Startup Catch-Up Discovery</span>
+                <span className="text-[11px] text-slate-400">Runs catch-up if last successful run is &gt; 24h old</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={catchUpEnabled}
+                onChange={(e) => setCatchUpEnabled(e.target.checked)}
+                className="w-4 h-4 rounded text-sky-600 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
+              />
             </div>
 
             <button
               onClick={handleUpdateSchedulerConfig}
-              className="px-4 py-2 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors"
+              className="px-4 py-2 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors w-full sm:w-auto"
             >
-              Update Scheduler Configuration
+              Save Scheduler Settings
             </button>
 
             {schedulerMsg && (
@@ -502,13 +563,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </div>
 
-          <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 text-xs space-y-2">
-            <span className="font-semibold text-white block">Rate Limit &amp; Robots Protection</span>
-            <p className="text-slate-400 leading-relaxed text-[11px]">
-              JobPilot adheres strictly to employer crawl terms, exponential backoff on HTTP 429 rate limits, and custom user-agent identification. Discovery cycles never spam company career endpoints.
-            </p>
-            <div className="pt-2 text-[10px] font-mono text-slate-500">
-              User-Agent: JobPilotBot/1.0 (+https://github.com/jobpilot; open-source)
+          <div className="space-y-4">
+            <div className="p-4 bg-slate-900/80 rounded-xl border border-slate-800 text-xs space-y-2 font-mono">
+              <span className="font-semibold text-white block text-xs">Persistent Scheduler Status</span>
+              <div className="flex justify-between text-slate-400 text-[11px]">
+                <span>Status:</span>
+                <span className={schedulerConfig?.enabled ? 'text-emerald-400' : 'text-slate-500'}>
+                  {schedulerConfig?.enabled ? 'Active (Auto-Running)' : 'Disabled'}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-[11px]">
+                <span>Target IST Time:</span>
+                <span className="text-white">{schedulerConfig?.scheduleTimeIst || '07:00'} IST</span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-[11px]">
+                <span>Next Scheduled Run:</span>
+                <span className="text-sky-300">{schedulerConfig?.formattedNextRunIst || 'Tomorrow, 07:00 AM IST'}</span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-[11px]">
+                <span>Last Run At:</span>
+                <span className="text-slate-300">{schedulerConfig?.formattedLastRunIst || 'Never'}</span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-[11px]">
+                <span>Concurrency Lock:</span>
+                <span className="text-emerald-400">Prevent Overlapping Enabled</span>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 text-xs space-y-2">
+              <span className="font-semibold text-white block">Rate Limit &amp; Robots Protection</span>
+              <p className="text-slate-400 leading-relaxed text-[11px]">
+                JobPilot adheres strictly to employer crawl terms, exponential backoff on HTTP 429 rate limits, and custom user-agent identification. Discovery cycles never spam company career endpoints.
+              </p>
+              <div className="pt-1 text-[10px] font-mono text-slate-500">
+                User-Agent: JobPilotBot/1.0 (+https://github.com/jobpilot; open-source)
+              </div>
             </div>
           </div>
         </div>
