@@ -2477,6 +2477,103 @@ export const companySourcesRepository = {
     }
   },
 
+  recordDetailedCrawlResult(
+    id: string,
+    metrics: {
+      httpStatus: number;
+      pagesFetched: number;
+      rawJobs: number;
+      newJobs: number;
+      updatedJobs: number;
+      duplicates: number;
+      closedJobs: number;
+      durationMs: number;
+      error?: string;
+    }
+  ): void {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    if (metrics.error) {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?,
+            last_error = ?,
+            http_status = ?,
+            pages_fetched = ?,
+            raw_jobs_count = ?,
+            new_jobs_count = ?,
+            updated_jobs_count = ?,
+            duplicates_count = ?,
+            closed_jobs_count = ?,
+            execution_duration_ms = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        now,
+        metrics.error,
+        metrics.httpStatus,
+        metrics.pagesFetched,
+        metrics.rawJobs,
+        metrics.newJobs,
+        metrics.updatedJobs,
+        metrics.duplicates,
+        metrics.closedJobs,
+        metrics.durationMs,
+        now,
+        id
+      );
+    } else {
+      db.prepare(`
+        UPDATE company_sources
+        SET last_crawl_at = ?,
+            last_successful_crawl_at = ?,
+            last_error = NULL,
+            status = 'active',
+            jobs_count = ?,
+            http_status = ?,
+            pages_fetched = ?,
+            raw_jobs_count = ?,
+            new_jobs_count = ?,
+            updated_jobs_count = ?,
+            duplicates_count = ?,
+            closed_jobs_count = ?,
+            execution_duration_ms = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        now,
+        now,
+        metrics.rawJobs,
+        metrics.httpStatus,
+        metrics.pagesFetched,
+        metrics.rawJobs,
+        metrics.newJobs,
+        metrics.updatedJobs,
+        metrics.duplicates,
+        metrics.closedJobs,
+        metrics.durationMs,
+        now,
+        id
+      );
+    }
+  },
+
+  toggleEnabled(id: string, isEnabled?: boolean): CompanySource | null {
+    const current = this.getById(id);
+    if (!current) return null;
+    const db = getDatabase();
+    const newEnabled = isEnabled !== undefined ? isEnabled : !(current.isEnabled ?? true);
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE company_sources
+      SET is_enabled = ?,
+          status = CASE WHEN ? = 1 THEN 'active' ELSE 'disabled' END,
+          updated_at = ?
+      WHERE id = ?
+    `).run(boolToInt(newEnabled), boolToInt(newEnabled), now, id);
+    return this.getById(id);
+  },
+
   mapRow(r: any): CompanySource {
     return {
       id: r.id,
@@ -2491,9 +2588,139 @@ export const companySourcesRepository = {
       lastError: r.last_error || undefined,
       crawlFrequencyHours: Number(r.crawl_frequency_hours || 6),
       jobsCount: Number(r.jobs_count || 0),
+      httpStatus: r.http_status != null ? Number(r.http_status) : undefined,
+      pagesFetched: r.pages_fetched != null ? Number(r.pages_fetched) : 1,
+      rawJobsCount: Number(r.raw_jobs_count || 0),
+      newJobsCount: Number(r.new_jobs_count || 0),
+      updatedJobsCount: Number(r.updated_jobs_count || 0),
+      duplicatesCount: Number(r.duplicates_count || 0),
+      closedJobsCount: Number(r.closed_jobs_count || 0),
+      executionDurationMs: Number(r.execution_duration_ms || 0),
+      isEnabled: r.is_enabled != null ? intToBool(r.is_enabled) : true,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  },
+};
+
+// 14. SCHEDULER REPOSITORY (Persistent Asia/Kolkata Scheduler State)
+export const schedulerRepository = {
+  getState(): SchedulerState {
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM scheduler_state WHERE id = ?').get('global_scheduler') as any;
+    if (!row) {
+      return this.saveInitialState();
+    }
+    return {
+      id: row.id,
+      enabled: intToBool(row.enabled),
+      scheduleTimeIst: row.schedule_time_ist || '07:00',
+      intervalHours: Number(row.interval_hours || 24),
+      lastRunAt: row.last_run_at || undefined,
+      lastSuccessfulRunAt: row.last_successful_run_at || undefined,
+      nextRunAt: row.next_run_at || undefined,
+      executionStatus: (row.execution_status as any) || 'idle',
+      lastError: row.last_error || undefined,
+      catchUpEnabled: intToBool(row.catch_up_enabled),
+      updatedAt: row.updated_at,
+    };
+  },
+
+  saveInitialState(): SchedulerState {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    const nextRun = computeNextRunAtIst('07:00', 24);
+    db.prepare(`
+      INSERT OR REPLACE INTO scheduler_state (
+        id, enabled, schedule_time_ist, interval_hours, next_run_at, execution_status, catch_up_enabled, updated_at
+      ) VALUES ('global_scheduler', 1, '07:00', 24, ?, 'idle', 1, ?)
+    `).run(nextRun, now);
+
+    return {
+      id: 'global_scheduler',
+      enabled: true,
+      scheduleTimeIst: '07:00',
+      intervalHours: 24,
+      nextRunAt: nextRun,
+      executionStatus: 'idle',
+      catchUpEnabled: true,
+      updatedAt: now,
+    };
+  },
+
+  updateState(updates: Partial<SchedulerState>): SchedulerState {
+    const db = getDatabase();
+    const current = this.getState();
+    const merged: SchedulerState = {
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (updates.scheduleTimeIst || updates.intervalHours !== undefined) {
+      merged.nextRunAt = computeNextRunAtIst(merged.scheduleTimeIst, merged.intervalHours);
+    }
+
+    db.prepare(`
+      UPDATE scheduler_state
+      SET enabled = ?, schedule_time_ist = ?, interval_hours = ?,
+          last_run_at = ?, last_successful_run_at = ?, next_run_at = ?,
+          execution_status = ?, last_error = ?, catch_up_enabled = ?, updated_at = ?
+      WHERE id = 'global_scheduler'
+    `).run(
+      boolToInt(merged.enabled),
+      merged.scheduleTimeIst,
+      merged.intervalHours,
+      merged.lastRunAt || null,
+      merged.lastSuccessfulRunAt || null,
+      merged.nextRunAt || null,
+      merged.executionStatus,
+      merged.lastError || null,
+      boolToInt(merged.catchUpEnabled),
+      merged.updatedAt
+    );
+
+    return merged;
+  },
+
+  recordRunStart(): SchedulerState {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE scheduler_state
+      SET execution_status = 'running', last_run_at = ?, updated_at = ?
+      WHERE id = 'global_scheduler'
+    `).run(now, now);
+    return this.getState();
+  },
+
+  recordRunComplete(success: boolean, error?: string): SchedulerState {
+    const current = this.getState();
+    const now = new Date().toISOString();
+    const nextRun = computeNextRunAtIst(current.scheduleTimeIst, current.intervalHours);
+
+    const db = getDatabase();
+    if (success) {
+      db.prepare(`
+        UPDATE scheduler_state
+        SET execution_status = 'completed',
+            last_successful_run_at = ?,
+            next_run_at = ?,
+            last_error = NULL,
+            updated_at = ?
+        WHERE id = 'global_scheduler'
+      `).run(now, nextRun, now);
+    } else {
+      db.prepare(`
+        UPDATE scheduler_state
+        SET execution_status = 'failed',
+            next_run_at = ?,
+            last_error = ?,
+            updated_at = ?
+        WHERE id = 'global_scheduler'
+      `).run(nextRun, error || 'Discovery run failed', now);
+    }
+    return this.getState();
   },
 };
 

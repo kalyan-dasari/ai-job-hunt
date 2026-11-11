@@ -14,6 +14,8 @@ export interface CrawlResult {
   detectedAts?: { provider: string; slug: string };
   error?: string;
   sourceType: 'ATS' | 'JSON-LD' | 'RSS' | 'Sitemap' | 'None';
+  httpStatus?: number;
+  pagesFetched?: number;
 }
 
 export class CareerPageCrawler {
