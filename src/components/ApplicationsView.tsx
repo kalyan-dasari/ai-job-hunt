@@ -195,7 +195,7 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
 
                         {/* Applied Date */}
                         <td className="py-3 px-3.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                          {formatIstDateTime(app.appliedDate || app.createdAt)}
+                          {formatIstDateTime(app.appliedAt || app.createdAt)}
                         </td>
 
                         {/* Status Dropdown */}
