@@ -956,6 +956,91 @@ export const candidateRepository = {
       `New resume version uploaded: "${version.fileName}" (${version.versionName})`
     );
   },
+
+  setActiveResumeVersion(versionId: string): CandidateProfile {
+    const db = getDatabase();
+    transaction(() => {
+      db.prepare('UPDATE resume_versions SET is_active = 0 WHERE candidate_id = ?').run('candidate-default');
+      db.prepare('UPDATE resume_versions SET is_active = 1 WHERE id = ? AND candidate_id = ?').run(versionId, 'candidate-default');
+      const row: any = db.prepare('SELECT raw_text FROM resume_versions WHERE id = ?').get(versionId);
+      const rawText = row ? row.raw_text : '';
+      db.prepare(`
+        UPDATE candidate_profile
+        SET active_resume_id = ?, raw_resume_text = ?, updated_at = ?
+        WHERE id = ?
+      `).run(versionId, rawText, new Date().toISOString(), 'candidate-default');
+    });
+
+    activityLogsRepository.log(
+      'resume_activated',
+      'candidate',
+      versionId,
+      `Active resume switched to version: ${versionId}`
+    );
+
+    return this.getProfile();
+  },
+
+  renameResumeVersion(versionId: string, newName: string): CandidateProfile {
+    const db = getDatabase();
+    db.prepare('UPDATE resume_versions SET version_name = ? WHERE id = ? AND candidate_id = ?').run(newName, versionId, 'candidate-default');
+    return this.getProfile();
+  },
+
+  deleteResumeVersion(versionId: string): CandidateProfile {
+    const db = getDatabase();
+    transaction(() => {
+      db.prepare('DELETE FROM resume_versions WHERE id = ? AND candidate_id = ?').run(versionId, 'candidate-default');
+      const profile = this.getProfile();
+      if (profile.activeResumeId === versionId) {
+        const remaining: any = db
+          .prepare('SELECT id, raw_text FROM resume_versions WHERE candidate_id = ? ORDER BY uploaded_at DESC LIMIT 1')
+          .get('candidate-default');
+        if (remaining) {
+          db.prepare('UPDATE resume_versions SET is_active = 1 WHERE id = ?').run(remaining.id);
+          db.prepare('UPDATE candidate_profile SET active_resume_id = ?, raw_resume_text = ?, updated_at = ? WHERE id = ?')
+            .run(remaining.id, remaining.raw_text, new Date().toISOString(), 'candidate-default');
+        } else {
+          db.prepare('UPDATE candidate_profile SET active_resume_id = "", updated_at = ? WHERE id = ?')
+            .run(new Date().toISOString(), 'candidate-default');
+        }
+      }
+    });
+
+    activityLogsRepository.log(
+      'resume_deleted',
+      'candidate',
+      versionId,
+      `Deleted resume version: ${versionId}`
+    );
+
+    return this.getProfile();
+  },
+
+  saveTailoredResumeVersion(versionName: string, rawText: string): CandidateProfile {
+    const newVersion: ResumeVersion = {
+      id: `tailored-${Date.now()}`,
+      fileName: `${versionName.replace(/[^a-zA-Z0-9_-]/g, '_')}.txt`,
+      uploadedAt: new Date().toISOString(),
+      fileSizeBytes: rawText.length,
+      extractedTextLength: rawText.length,
+      versionName: versionName || `Tailored Resume ${new Date().toLocaleDateString()}`,
+      isActive: false,
+    };
+    this.addResumeVersion(newVersion, rawText);
+    return this.getProfile();
+  },
+
+  getResumeVersion(versionId: string): { id: string; rawText: string; versionName: string } | null {
+    const db = getDatabase();
+    const row: any = db.prepare('SELECT id, raw_text, version_name FROM resume_versions WHERE id = ?').get(versionId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      rawText: row.raw_text,
+      versionName: row.version_name,
+    };
+  },
 };
 
 // 2. JOBS REPOSITORY

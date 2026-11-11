@@ -32,6 +32,7 @@ import { calculateDeterministicMatch } from './server/matching.ts';
 import { careerPageCrawler } from './server/job-sources/discovery/crawler.ts';
 import { getAllAtsAdapters, getAtsAdapter } from './server/job-sources/ats/index.ts';
 import { classifyDetailedLocation } from './server/job-sources/normalizer.ts';
+import { isTodayIst, isWithinHours, isWithinDays } from './server/temporal.ts';
 
 dotenv.config();
 
@@ -516,6 +517,67 @@ ${resumeText}`;
   }
 });
 
+// Resume Versions Management Endpoints
+app.post('/api/candidate/resumes/:id/activate', (req: Request, res: Response) => {
+  try {
+    const updated = candidateRepository.setActiveResumeVersion(req.params.id);
+    jobsRepository.recalculateAllMatches(updated, calculateDeterministicMatch);
+    res.json({ success: true, profile: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to activate resume version', details: err.message });
+  }
+});
+
+app.patch('/api/candidate/resumes/:id', (req: Request, res: Response) => {
+  try {
+    const { versionName } = req.body;
+    if (!versionName) {
+      res.status(400).json({ error: 'versionName is required' });
+      return;
+    }
+    const updated = candidateRepository.renameResumeVersion(req.params.id, versionName);
+    res.json({ success: true, profile: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to rename resume version', details: err.message });
+  }
+});
+
+app.delete('/api/candidate/resumes/:id', (req: Request, res: Response) => {
+  try {
+    const updated = candidateRepository.deleteResumeVersion(req.params.id);
+    res.json({ success: true, profile: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete resume version', details: err.message });
+  }
+});
+
+app.post('/api/candidate/resumes/tailored', (req: Request, res: Response) => {
+  try {
+    const { versionName, content } = req.body;
+    if (!content) {
+      res.status(400).json({ error: 'content is required' });
+      return;
+    }
+    const updated = candidateRepository.saveTailoredResumeVersion(versionName || 'Tailored Resume', content);
+    res.json({ success: true, profile: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to save tailored resume', details: err.message });
+  }
+});
+
+app.get('/api/candidate/resumes/:id', (req: Request, res: Response) => {
+  try {
+    const version = candidateRepository.getResumeVersion(req.params.id);
+    if (!version) {
+      res.status(404).json({ error: 'Resume version not found' });
+      return;
+    }
+    res.json(version);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to get resume version', details: err.message });
+  }
+});
+
 // Jobs Endpoints
 app.get('/api/jobs', (req: Request, res: Response) => {
   try {
@@ -527,11 +589,18 @@ app.get('/api/jobs', (req: Request, res: Response) => {
       experienceLevel,
       source,
       startupOnly,
+      savedOnly,
+      fresherOnly,
+      internshipOnly,
+      remoteIndia,
+      timeframe,
       verificationStatus,
       freshnessStatus,
       minMatchScore,
       sort,
       showDismissed,
+      page,
+      limit,
     } = req.query;
 
     let filtered = jobsRepository.getAllJobs();
@@ -539,6 +608,58 @@ app.get('/api/jobs', (req: Request, res: Response) => {
     // Exclude dismissed unless specifically requested
     if (showDismissed !== 'true') {
       filtered = filtered.filter((j) => !j.isDismissed);
+    }
+
+    // Saved only
+    if (savedOnly === 'true') {
+      filtered = filtered.filter((j) => j.isSaved);
+    }
+
+    // Fresher only
+    if (fresherOnly === 'true') {
+      filtered = filtered.filter(
+        (j) =>
+          j.matchResult?.isFresherEligible ||
+          j.fresherStatus === 'Fresher' ||
+          (j as any).experienceCategory === 'Fresher' ||
+          j.experienceLevel === 'Entry' ||
+          j.experienceLevel === 'Intern' ||
+          (j.minExpYears !== undefined && j.minExpYears <= 2)
+      );
+    }
+
+    // Internship only
+    if (internshipOnly === 'true') {
+      filtered = filtered.filter(
+        (j) =>
+          j.employmentType === 'Internship' ||
+          j.experienceLevel === 'Intern' ||
+          j.title.toLowerCase().includes('intern')
+      );
+    }
+
+    // Remote India
+    if (remoteIndia === 'true') {
+      filtered = filtered.filter(
+        (j) =>
+          (j.workArrangement === 'Remote' || j.location.toLowerCase().includes('remote')) &&
+          (j.location.toLowerCase().includes('india') ||
+            j.country === 'India' ||
+            (j as any).locationCategory === 'remote_india')
+      );
+    }
+
+    // Timeframe filter
+    if (timeframe && typeof timeframe === 'string' && timeframe !== 'all') {
+      if (timeframe === 'today') {
+        filtered = filtered.filter((j) => isTodayIst(j.firstSeenAt || j.datePosted));
+      } else if (timeframe === '24h') {
+        filtered = filtered.filter((j) => isWithinHours(j.firstSeenAt || j.datePosted, 24));
+      } else if (timeframe === '7d') {
+        filtered = filtered.filter((j) => isWithinDays(j.firstSeenAt || j.datePosted, 7));
+      } else if (timeframe === '30d') {
+        filtered = filtered.filter((j) => isWithinDays(j.firstSeenAt || j.datePosted, 30));
+      }
     }
 
     // Keyword query
@@ -619,9 +740,21 @@ app.get('/api/jobs', (req: Request, res: Response) => {
       });
     }
 
+    const totalCount = filtered.length;
+    const pageNum = page ? parseInt(page as string, 10) : undefined;
+    const limitNum = limit ? parseInt(limit as string, 10) : undefined;
+    let paginatedJobs = filtered;
+    if (pageNum && limitNum && limitNum > 0) {
+      const startIndex = (pageNum - 1) * limitNum;
+      paginatedJobs = filtered.slice(startIndex, startIndex + limitNum);
+    }
+
     res.json({
-      total: filtered.length,
-      jobs: filtered,
+      total: totalCount,
+      page: pageNum || 1,
+      limit: limitNum || totalCount,
+      totalPages: limitNum ? Math.ceil(totalCount / limitNum) : 1,
+      jobs: paginatedJobs,
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to load jobs catalog', details: err.message });
