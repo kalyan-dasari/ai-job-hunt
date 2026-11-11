@@ -1067,3 +1067,4 @@ export const ResumeWorkspaceView: React.FC<ResumeWorkspaceViewProps> = ({
     </div>
   );
 };
+

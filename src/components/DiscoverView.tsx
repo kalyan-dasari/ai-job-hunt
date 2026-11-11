@@ -755,3 +755,4 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     </div>
   );
 };
+
