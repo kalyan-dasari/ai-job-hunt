@@ -72,7 +72,7 @@ app.use((req: Request, res: Response, next) => {
     return next();
   }
 
-  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket?.remoteAddress || (req as any).connection?.remoteAddress || '127.0.0.1';
   const now = Date.now();
   let bucket = rateLimitMap.get(clientIp);
 
