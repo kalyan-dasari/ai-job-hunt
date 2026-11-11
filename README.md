@@ -1,4 +1,4 @@
-# JobPilot AI v1.0 — Web-First Intelligent Job Discovery & Application Engine
+# JobPilot AI v1.1 — Automated Daily Job Discovery & New Openings Feed
 
 [![CI Pipeline](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml/badge.svg)](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -7,6 +7,12 @@
 [![Operating Cost](https://img.shields.io/badge/%E2%82%B90-Operating%20Cost-success.svg)](#zero-cost-philosophy)
 
 **JobPilot AI** is an open-source, web-first job discovery engine and application assistant designed for software engineers and technology professionals. Inspired by Dossier's clean, minimalist architecture, JobPilot AI aggregates verified public vacancies directly from official company career boards, 11 public Applicant Tracking Systems (ATS), and Schema.org feeds — without requiring paid aggregators, credits, or monthly API fees.
+
+### What's New in v1.1
+- **Automated Daily Discovery Scheduler**: Persistent background crawler running every 24 hours at 7:00 AM Asia/Kolkata (`07:00 IST`), configurable from Settings with startup catch-up execution.
+- **Daily Discoveries & New Openings Feed**: Dedicated dashboard with KPI cards (Newly Discovered Today, Newly Posted Last 24h, Openings Last 7d, Recently Updated, Fresher-Friendly, Remote in India), customizable timeframe filters, and distinct "Newly Discovered" vs. "Recently Posted" badges.
+- **Granular Source Monitoring Dashboard**: Real-time health metrics per company source (HTTP status, pages fetched, raw jobs, new openings, updated jobs, duplicates merged, closed listings, duration) with one-click "Run All Sources Now" and "Retry Failed Sources".
+- **Temporal & Closure Integrity**: Strict mutual exclusion on experience, automated closure detection for filled vacancies, and immutable application tracking survival.
 
 ---
 

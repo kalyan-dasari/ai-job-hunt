@@ -241,7 +241,7 @@ async function runTestSuite() {
   assert(retrievedApp !== null, 'Application record survives job closure intact');
   assert(retrievedApp?.status === 'Applied', 'Application stage preserved');
   assert(retrievedApp?.notes === 'Candidate submitted resume through company portal.', 'Application notes preserved');
-  assert(retrievedApp?.timeline.length >= 1, 'Application history timeline preserved');
+  assert(Boolean(retrievedApp && retrievedApp.timeline && retrievedApp.timeline.length >= 1), 'Application history timeline preserved');
 
   // ---------------- SCENARIO 11: Asia/Kolkata Date Consistency ----------------
   console.log('\nScenario 11: Asia/Kolkata (+05:30) date consistency');
