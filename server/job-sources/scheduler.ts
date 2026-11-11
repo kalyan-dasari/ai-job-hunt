@@ -38,10 +38,13 @@ export class IngestionService {
     return this.schedulerTimer !== null;
   }
 
-  public getConfig(): SchedulerState & { isRunning: boolean; formattedNextRunIst: string; formattedLastRunIst: string } {
+  public getConfig(): SchedulerState & { isRunning: boolean; formattedNextRunIst: string; formattedLastRunIst: string; intervalMinutes: number } {
     const state = schedulerRepository.getState();
+    const intervalHours = state.intervalHours || 24;
     return {
       ...state,
+      intervalHours,
+      intervalMinutes: Math.round(intervalHours * 60),
       isRunning: this.isIngestionRunning,
       formattedNextRunIst: formatIstDateTime(state.nextRunAt),
       formattedLastRunIst: formatIstDateTime(state.lastRunAt),
@@ -52,13 +55,18 @@ export class IngestionService {
     enabled?: boolean;
     scheduleTimeIst?: string;
     intervalHours?: number;
+    intervalMinutes?: number;
     catchUpEnabled?: boolean;
   }): SchedulerState {
     const current = schedulerRepository.getState();
+    let computedHours = updates.intervalHours;
+    if (computedHours === undefined && updates.intervalMinutes !== undefined) {
+      computedHours = updates.intervalMinutes / 60;
+    }
     const updated = schedulerRepository.updateState({
       enabled: updates.enabled !== undefined ? updates.enabled : current.enabled,
       scheduleTimeIst: updates.scheduleTimeIst || current.scheduleTimeIst || '07:00',
-      intervalHours: updates.intervalHours !== undefined ? Math.max(1, Math.min(168, updates.intervalHours)) : current.intervalHours,
+      intervalHours: computedHours !== undefined ? Math.max(0.1, Math.min(168, computedHours)) : current.intervalHours,
       catchUpEnabled: updates.catchUpEnabled !== undefined ? updates.catchUpEnabled : current.catchUpEnabled,
     });
 
