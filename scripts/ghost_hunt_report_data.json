@@ -1,0 +1,149 @@
+{
+  "startTime": "2026-11-12T18:07:20.638Z",
+  "results": [
+    {
+      "id": "cp-01-health-version",
+      "domain": "Foundation",
+      "name": "Package and Server Version 1.3.0 Alignment",
+      "expectation": "Version must be explicitly declared as 1.3.0",
+      "observation": "Observed package version: 1.3.0",
+      "status": "PASS",
+      "source": "api_contract",
+      "evidenceRef": "package.json#L3"
+    },
+    {
+      "id": "cp-02-sqlite-engine",
+      "domain": "Foundation",
+      "name": "SQLite Native WAL Mode and Foreign Keys",
+      "expectation": "PRAGMA journal_mode=wal, PRAGMA foreign_keys=1",
+      "observation": "Journal mode: wal, Foreign keys: 1",
+      "status": "PASS",
+      "source": "product_documentation",
+      "evidenceRef": "server/database.ts:initDatabase"
+    },
+    {
+      "id": "cp-03-local-resume-parser",
+      "domain": "Candidate Profile",
+      "name": "Deterministic Local Resume Text Extraction",
+      "expectation": "Extracts contact, skills, experience, education, projects without LLM API key",
+      "observation": "Extracted 9 skills, 1 experiences, 1 degrees, 1 projects",
+      "status": "PASS",
+      "source": "product_documentation",
+      "evidenceRef": "server/local-resume-parser.ts:parseResumeLocally"
+    },
+    {
+      "id": "cp-04-preference-persistence",
+      "domain": "Candidate Profile",
+      "name": "Candidate Job Preferences Persistence",
+      "expectation": "Preferred roles, locations, and experience tiers persist across SQLite sessions",
+      "observation": "Stored roles: [Python Developer, Full Stack Developer], exp: 0-1y",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/database.ts:candidateRepository.updateProfile"
+    },
+    {
+      "id": "cp-05-catalog-inventory",
+      "domain": "Job Ingestion",
+      "name": "SQLite Unique Job Catalog Inventory",
+      "expectation": "Total unique stored jobs >= 600 (no mock listings)",
+      "observation": "Total unique verified jobs in SQLite: 636",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "data/jobpilot.db:jobs"
+    },
+    {
+      "id": "cp-06-experience-mutual-exclusivity",
+      "domain": "Job Ingestion",
+      "name": "Mutually Exclusive Experience Categories",
+      "expectation": "Sum of Fresher + Experienced + Unclear exactly equals unique jobs count",
+      "observation": "Fresher: 33, Experienced: 449, Unclear: 154 | Sum: 636 vs Total: 636",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/job-sources/normalizer.ts:normalizeExperienceLevel"
+    },
+    {
+      "id": "cp-07-location-integrity",
+      "domain": "Job Ingestion",
+      "name": "India-First Location Classification Integrity",
+      "expectation": "Complete 5-way classification with 0 unclassified jobs and 0 international jobs marked India-eligible",
+      "observation": "India city: 548, India remote: 17, Intl open to India: 53, International location: 18, Unknown: 0 (False India-eligible: 0)",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/job-sources/normalizer.ts:isIndiaEligibleJob"
+    },
+    {
+      "id": "cp-08-fresher-eligibility-cap",
+      "domain": "Matching Engine",
+      "name": "Senior Position Score Cap for Early-Career Candidates",
+      "expectation": "Senior positions (8+ yrs) are score-capped <= 35% for 0-1y candidates and flag mandatory failure",
+      "observation": "Overall score: 28%, mandatoryMet: false",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/matching.ts:calculateDeterministicMatch"
+    },
+    {
+      "id": "cp-09-transparent-match-explanations",
+      "domain": "Matching Engine",
+      "name": "Objective Skill & Location Fit Explanations",
+      "expectation": "MatchResult provides strongMatches, missingSkills, and location notes without hallucination",
+      "observation": "Strong matches: 1, Missing skills: 2, Explanation: \"Restricted match: Demands 8+ yrs experience. Candidate is ea...\"",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/matching.ts:MatchResult"
+    },
+    {
+      "id": "cp-10-application-integrity",
+      "domain": "Application Tracking",
+      "name": "Application Linking & Foreign Key Integrity",
+      "expectation": "Application links to valid job; invalid job ID strictly rejected",
+      "observation": "Created app app-1794506840802 successfully linked; invalid foreign reference rejected: true",
+      "status": "PASS",
+      "source": "api_contract",
+      "evidenceRef": "server/database.ts:applicationsRepository"
+    },
+    {
+      "id": "cp-11-scheduler-ist-config",
+      "domain": "Daily Scheduler",
+      "name": "Daily Scheduler Asia/Kolkata (07:00 IST) Timing",
+      "expectation": "Persistent scheduler configured for 24h interval targeting 07:00 IST",
+      "observation": "Schedule time: 07:00 IST, interval: 24h, nextRunAt: 2026-11-13T01:30:00.000Z",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/temporal.ts:computeNextRunAtIst"
+    },
+    {
+      "id": "cp-12-scheduler-catchup-logic",
+      "domain": "Daily Scheduler",
+      "name": "Automated Startup Catch-up Evaluation",
+      "expectation": "Catch-up runs if last run is undefined or > 24h old; skipped if < 24h old",
+      "observation": "needWhenNever: true, needWhenOld: true, skipWhenFresh: true",
+      "status": "PASS",
+      "source": "user_requirement",
+      "evidenceRef": "server/temporal.ts:isCatchUpNeeded"
+    },
+    {
+      "id": "cp-13-source-health-monitoring",
+      "domain": "Sources",
+      "name": "Company Source Operational Health & Hygiene",
+      "expectation": "Active verified public sources enabled (>=24), obsolete/migrated sources safely paused (>=10)",
+      "observation": "Active sources: 26, Paused/Disabled sources: 14 (Total: 40)",
+      "status": "PASS",
+      "source": "product_documentation",
+      "evidenceRef": "server/database.ts:companySourcesRepository"
+    },
+    {
+      "id": "cp-14-closure-safety-guarantee",
+      "domain": "Sources",
+      "name": "Safe Job Closure Detection Heuristic",
+      "expectation": "Closure detection executes cleanly without database corruption",
+      "observation": "Checked vacancy closure detection without error: 0 closed",
+      "status": "PASS",
+      "source": "product_documentation",
+      "evidenceRef": "server/database.ts:jobsRepository.markMissingJobsClosedForCompany"
+    }
+  ],
+  "passCount": 14,
+  "failCount": 0,
+  "unknownCount": 0,
+  "passRate": 100
+}

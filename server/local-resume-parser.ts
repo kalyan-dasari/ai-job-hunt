@@ -50,7 +50,7 @@ export function parseResumeLocally(text: string): ParsedResumeData {
   // 1. Contact Information
   const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   const phoneMatch = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-  
+
   // Detect location
   let detectedLocation = '';
   for (const city of INDIA_CITIES) {
@@ -194,8 +194,34 @@ export function parseResumeLocally(text: string): ParsedResumeData {
   const projLines = sections.projects;
   let currentProj: Partial<ProjectItem> | null = null;
   for (const line of projLines) {
-    if (line.length < 50 && (line.includes(':') || line.includes('|') || /^[A-Z0-9\s]{3,30}$/.test(line))) {
-      if (currentProj && currentProj.title) {
+      const isBullet = line.startsWith('•') || line.startsWith('-') || line.startsWith('*');
+      if (!isBullet && line.length < 60 && (line.includes(':') || line.includes('|') || /^[A-Za-z0-9\s\-_]{3,50}$/.test(line))) {
+        if (currentProj && currentProj.title) {
+          projects.push({
+            id: `proj-${Date.now()}-${projects.length}`,
+            title: currentProj.title,
+            summary: currentProj.summary || 'Engineered responsive full-stack software application.',
+            techStack: currentProj.techStack || ['Python', 'React'],
+            highlights: currentProj.highlights || [],
+          });
+          if (projects.length >= 3) break;
+        }
+        const parts = line.split(/[:|]/).map((s) => s.trim());
+        currentProj = {
+          title: parts[0],
+          summary: parts[1] || '',
+          techStack: detectedSkills.slice(0, 3),
+          highlights: [],
+        };
+      } else if (currentProj) {
+          if (isBullet) {
+            currentProj.highlights = [...(currentProj.highlights || []), line.replace(/^[•\-*]\s*/, '')];
+          } else {
+            currentProj.summary = currentProj.summary ? `${currentProj.summary} ${line}` : line;
+          }
+        }
+      }
+      if (currentProj && currentProj.title && projects.length < 3) {
         projects.push({
           id: `proj-${Date.now()}-${projects.length}`,
           title: currentProj.title,
@@ -203,106 +229,81 @@ export function parseResumeLocally(text: string): ParsedResumeData {
           techStack: currentProj.techStack || ['Python', 'React'],
           highlights: currentProj.highlights || [],
         });
-        if (projects.length >= 3) break;
       }
-      const parts = line.split(/[:|]/).map((s) => s.trim());
-      currentProj = {
-        title: parts[0],
-        summary: parts[1] || '',
-        techStack: detectedSkills.slice(0, 3),
-        highlights: [],
+
+      // 7. Calculate Experience Range & Level
+      let totalExperienceYears = 0;
+      if (experience.length > 0) {
+        for (const exp of experience) {
+          const s = parseInt(exp.startDate || '2023', 10);
+          const e = exp.current || exp.endDate === 'Present' ? new Date().getFullYear() : parseInt(exp.endDate || '2023', 10);
+          const diff = isNaN(e) || isNaN(s) ? 1 : Math.max(0.5, e - s);
+          totalExperienceYears += diff;
+        }
+      }
+
+      const isFresherCandidate =
+        totalExperienceYears <= 1 ||
+        experience.length === 0 ||
+        experience.some((e) => /intern|trainee|apprentice/i.test(e.title));
+
+      const minExperienceYears = isFresherCandidate ? 0 : Math.max(1, Math.floor(totalExperienceYears));
+      const maxExperienceYears = isFresherCandidate ? 1 : Math.ceil(totalExperienceYears + 1);
+
+      // 8. Inferred Preferred Roles & Locations
+      const preferredRoles: string[] = [];
+      if (experience.length > 0 && experience[0].title) {
+        preferredRoles.push(experience[0].title);
+      }
+      if (detectedSkills.some((s) => ['Python', 'Django', 'FastAPI'].includes(s))) {
+        preferredRoles.push('Python Developer', 'Backend Developer');
+      }
+      if (detectedSkills.some((s) => ['React', 'TypeScript', 'JavaScript'].includes(s))) {
+        preferredRoles.push('Full Stack Developer', 'React Developer');
+      }
+      if (isFresherCandidate) {
+        preferredRoles.push('Software Engineer', 'Graduate Engineer Trainee');
+      }
+      if (preferredRoles.length === 0) {
+        preferredRoles.push('Software Engineer', 'Full Stack Developer');
+      }
+
+      const preferredLocations = [
+        detectedLocation || 'Bengaluru',
+        'Hyderabad',
+        'Pune',
+        'Remote India',
+      ];
+
+      const primaryHeadline = experience.length > 0
+        ? `${experience[0].title} (${detectedSkills.slice(0, 3).join(', ')})`
+        : detectedSkills.length > 0
+          ? `Software Engineer (${detectedSkills.slice(0, 3).join(', ')})`
+          : 'Software Professional';
+
+      return {
+        name: inferredName,
+        email: emailMatch ? emailMatch[0] : '',
+        phone: phoneMatch ? phoneMatch[0] : '',
+        location: detectedLocation || 'Bengaluru, India',
+        headline: primaryHeadline,
+        summary: sections.summary.slice(0, 3).join(' ') || `${inferredName} is a software engineer specializing in ${detectedSkills.slice(0, 4).join(', ') || 'modern software development'}.`,
+        skills: detectedSkills,
+        skillCategories: {
+          languages: detectedSkills.filter((s) => ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#', 'SQL'].includes(s)),
+          frameworks: detectedSkills.filter((s) => ['React', 'Next.js', 'Vue.js', 'Angular', 'Node.js', 'Express', 'Django', 'FastAPI', 'Flask', 'Spring Boot'].includes(s)),
+          cloudDevops: detectedSkills.filter((s) => ['AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'CI/CD', 'Terraform'].includes(s)),
+          tools: detectedSkills.filter((s) => ['Git', 'GitHub Actions', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Linux'].includes(s)),
+          domainSpecialties: ['Web Engineering', 'Backend Systems', 'Distributed Services'],
+        },
+        experience,
+        education,
+        projects,
+        certifications: [],
+        preferredRoles: [...new Set(preferredRoles)].slice(0, 4),
+        preferredLocations: [...new Set(preferredLocations)].slice(0, 4),
+        minExperienceYears,
+        maxExperienceYears,
       };
-    } else if (currentProj) {
-      if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
-        currentProj.highlights = [...(currentProj.highlights || []), line.replace(/^[•\-*]\s*/, '')];
-      } else {
-        currentProj.summary = currentProj.summary ? `${currentProj.summary} ${line}` : line;
-      }
     }
-  }
-  if (currentProj && currentProj.title && projects.length < 3) {
-    projects.push({
-      id: `proj-${Date.now()}-${projects.length}`,
-      title: currentProj.title,
-      summary: currentProj.summary || 'Engineered responsive full-stack software application.',
-      techStack: currentProj.techStack || ['Python', 'React'],
-      highlights: currentProj.highlights || [],
-    });
-  }
-
-  // 7. Calculate Experience Range & Level
-  let totalExperienceYears = 0;
-  if (experience.length > 0) {
-    for (const exp of experience) {
-      const s = parseInt(exp.startDate || '2023', 10);
-      const e = exp.current || exp.endDate === 'Present' ? new Date().getFullYear() : parseInt(exp.endDate || '2023', 10);
-      const diff = isNaN(e) || isNaN(s) ? 1 : Math.max(0.5, e - s);
-      totalExperienceYears += diff;
-    }
-  }
-
-  const isFresherCandidate =
-    totalExperienceYears <= 1 ||
-    experience.length === 0 ||
-    experience.some((e) => /intern|trainee|apprentice/i.test(e.title));
-
-  const minExperienceYears = isFresherCandidate ? 0 : Math.max(1, Math.floor(totalExperienceYears));
-  const maxExperienceYears = isFresherCandidate ? 1 : Math.ceil(totalExperienceYears + 1);
-
-  // 8. Inferred Preferred Roles & Locations
-  const preferredRoles: string[] = [];
-  if (experience.length > 0 && experience[0].title) {
-    preferredRoles.push(experience[0].title);
-  }
-  if (detectedSkills.some((s) => ['Python', 'Django', 'FastAPI'].includes(s))) {
-    preferredRoles.push('Python Developer', 'Backend Developer');
-  }
-  if (detectedSkills.some((s) => ['React', 'TypeScript', 'JavaScript'].includes(s))) {
-    preferredRoles.push('Full Stack Developer', 'React Developer');
-  }
-  if (isFresherCandidate) {
-    preferredRoles.push('Software Engineer', 'Graduate Engineer Trainee');
-  }
-  if (preferredRoles.length === 0) {
-    preferredRoles.push('Software Engineer', 'Full Stack Developer');
-  }
-
-  const preferredLocations = [
-    detectedLocation || 'Bengaluru',
-    'Hyderabad',
-    'Pune',
-    'Remote India',
-  ];
-
-  const primaryHeadline = experience.length > 0
-    ? `${experience[0].title} (${detectedSkills.slice(0, 3).join(', ')})`
-    : detectedSkills.length > 0
-    ? `Software Engineer (${detectedSkills.slice(0, 3).join(', ')})`
-    : 'Software Professional';
-
-  return {
-    name: inferredName,
-    email: emailMatch ? emailMatch[0] : '',
-    phone: phoneMatch ? phoneMatch[0] : '',
-    location: detectedLocation || 'Bengaluru, India',
-    headline: primaryHeadline,
-    summary: sections.summary.slice(0, 3).join(' ') || `${inferredName} is a software engineer specializing in ${detectedSkills.slice(0, 4).join(', ') || 'modern software development'}.`,
-    skills: detectedSkills,
-    skillCategories: {
-      languages: detectedSkills.filter((s) => ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#', 'SQL'].includes(s)),
-      frameworks: detectedSkills.filter((s) => ['React', 'Next.js', 'Vue.js', 'Angular', 'Node.js', 'Express', 'Django', 'FastAPI', 'Flask', 'Spring Boot'].includes(s)),
-      cloudDevops: detectedSkills.filter((s) => ['AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'CI/CD', 'Terraform'].includes(s)),
-      tools: detectedSkills.filter((s) => ['Git', 'GitHub Actions', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Linux'].includes(s)),
-      domainSpecialties: ['Web Engineering', 'Backend Systems', 'Distributed Services'],
-    },
-    experience,
-    education,
-    projects,
-    certifications: [],
-    preferredRoles: [...new Set(preferredRoles)].slice(0, 4),
-    preferredLocations: [...new Set(preferredLocations)].slice(0, 4),
-    minExperienceYears,
-    maxExperienceYears,
-  };
-}
 
