@@ -20,7 +20,7 @@ async function detectAll() {
   console.log('Detecting ATS / JSON-LD across candidate URLs...\n');
   for (const item of URLS) {
     try {
-      const res = await careerPageCrawler.detectCareersPageAndAts(item.url);
+      const res = await careerPageCrawler.inspectUrl(item.url);
       console.log(`[RESULT] ${item.name.padEnd(16)} -> Careers URL: ${res.careersUrl || 'N/A'}`);
       if (res.detectedAts) {
         console.log(`         ATS DETECTED: provider=${res.detectedAts.provider}, slug=${res.detectedAts.slug}, confidence=${res.detectedAts.confidence}`);
