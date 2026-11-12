@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "ghost-hunt": {
+      "source": "kalyan-dasari/ghost-feature-hunter",
+      "sourceType": "github",
+      "skillPath": "skills/ghost-hunt/SKILL.md",
+      "computedHash": "db7fcd40c139c0a1f0a9921001810fd579b4b8a7a86f6a4d9e33088d44e98261",
+      "installMode": "copy"
+    }
+  }
+}
