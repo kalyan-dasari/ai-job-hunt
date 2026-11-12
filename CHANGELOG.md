@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-11-12
+
+### Added
+- **Unified Candidate Profile & Preference Center**:
+  - Integrated candidate profile review and editing directly inside Resume Workspace (`ResumeWorkspaceView.tsx`).
+  - Added interactive preference controls for Target Roles, Target Locations, Experience Level tiers (`Fresher 0–1 yr`, `Junior 1–3 yrs`, `Mid 3–5 yrs`, `Senior 5+ yrs`), and numeric ranges.
+  - Profile saves immediately commit to SQLite and trigger automated match score recalculation across all catalog jobs.
+- **Offline & Deterministic Local Resume Parser**:
+  - Engineered local regex and segmentation heuristic resume parser (`server/local-resume-parser.ts`) extracting skills, work experience, projects, education, contact info, and experience tiers with zero paid LLM dependency.
+- **High-Yield Public Source Expansion (+189 New Openings)**:
+  - Added and verified 8 major public ATS company boards: Meesho (Lever), Zeta (Lever), Pocket FM (Lever), Supabase (Ashby), GitLab (Greenhouse), Elastic (Greenhouse), Datadog (Greenhouse), and Thoughtworks (Greenhouse).
+  - Expanded total catalog from 447 to **636 unique jobs** with ₹0 operating cost.
+  - Deactivated obsolete test fixtures and sources that migrated off public ATS endpoints.
+- **Enhanced Daily Experience & Filtering**:
+  - Added Daily Discovery Status Bar in Discover View showing last scan time, next scheduled run, openings in latest scan, and operational source health count ($26/26$ active, $0$ errors).
+  - Added "Run Discovery Now" manual button with live progress spinner and instant feedback notification.
+  - Added "New Since Last Scan" quick filter pill and granular experience tier filters (`Fresher 0–1 yr`, `Junior 1–3 yrs`, `Mid 3–5 yrs`, `Senior 5+ yrs`).
+
+### Changed
+- Refined default relevance sorting algorithm to boost newly discovered openings, matching candidate target roles, and matching candidate target locations.
+- Reconciled experience metrics: 33 Fresher-Friendly, 449 Experienced, 154 Unclear = exactly 636 total jobs.
+
+---
+
+## [1.1.0] - 2026-11-12
+
+### Added
+- **Automated Daily Discovery Scheduler**:
+  - Persistent background scheduler in Node.js running every 24 hours at 07:00 IST.
+  - Startup catch-up discovery execution for runs older than 24 hours.
+  - Scheduler state persistence and recovery in SQLite (`scheduler_state` table).
+- **Daily Discoveries & Temporal Tracking**:
+  - Tracking of `first_seen_at`, `last_seen_at`, `posted_at`, and `closed_at` on all job records.
+  - Automatic vacancy closure detection for delisted requisitions.
+  - Daily Discoveries dashboard with KPI metrics and timeframe filtering.
+
+---
+
 ## [1.0.0] - 2026-11-10
 
 ### Added

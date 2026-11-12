@@ -1,4 +1,4 @@
-# JobPilot AI v1.1 — Automated Daily Job Discovery & New Openings Feed
+# JobPilot AI v1.3.0 — Personalized Daily Job Discovery & Multi-ATS Career Engine
 
 [![CI Pipeline](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml/badge.svg)](https://github.com/kalyan-dasari/ai-job-hunt/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -6,7 +6,14 @@
 [![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
 [![Operating Cost](https://img.shields.io/badge/%E2%82%B90-Operating%20Cost-success.svg)](#zero-cost-philosophy)
 
-**JobPilot AI** is an open-source, web-first job discovery engine and application assistant designed for software engineers and technology professionals. Inspired by Dossier's clean, minimalist architecture, JobPilot AI aggregates verified public vacancies directly from official company career boards, 11 public Applicant Tracking Systems (ATS), and Schema.org feeds — without requiring paid aggregators, credits, or monthly API fees.
+**JobPilot AI v1.3.0** is an open-source, web-first personalized job discovery platform and application assistant designed for software engineers and technology professionals. Inspired by Dossier's clean, minimalist architecture, JobPilot AI aggregates verified public vacancies directly from official company career boards, 11 public Applicant Tracking Systems (ATS), and Schema.org feeds — without requiring paid aggregators, credits, or monthly API fees.
+
+### What's New in v1.3.0
+- **Personalized Candidate Profile & Preference Center**: Review and customize your extracted skills, work experience, projects, education, target roles, target locations, and experience tier in one unified workspace. Saving preferences immediately recalibrates all match scores and personalizes discovery feed rankings.
+- **Offline & Local Deterministic Parsing**: Full resume extraction (contact info, skills, experience, education, projects, inferred roles/experience) executes 100% locally with zero paid LLM API dependency.
+- **Major Verified Source Expansion (+189 New Openings)**: Expansion across high-yield public ATS endpoints (Meesho, Zeta, Pocket FM, Supabase, GitLab, Elastic, Datadog, Thoughtworks), expanding catalog from 447 to **636 unique jobs**.
+- **Mutually Exclusive Categorization**: 33 Fresher-Friendly, 449 Experienced, 154 Unclear = exactly 636 jobs with 70 Remote India / International remote openings.
+- **Enhanced Daily Experience & Quick Filters**: Daily Discovery Status Bar on Discover with last scan time, next scheduled run, new jobs in latest scan, active source health ($26/26$), and one-click manual scan with live notifications. Added "New Since Last Scan" filter and granular experience tier filters.
 
 ### What's New in v1.1
 - **Automated Daily Discovery Scheduler**: Persistent background crawler running every 24 hours at 7:00 AM Asia/Kolkata (`07:00 IST`), configurable from Settings with startup catch-up execution.
