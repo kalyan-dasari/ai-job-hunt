@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   SlidersHorizontal,
@@ -17,10 +17,16 @@ import {
   Layers,
   ArrowUpDown,
   Building,
+  Clock,
+  Zap,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { Job, WorkArrangement, EmploymentType } from '../types/job';
 import { CandidateProfile } from '../types/candidate';
 import { isTodayIst, isWithinHours, isWithinDays } from '../utils/temporalClient';
+import { api } from '../api/client';
+import { SchedulerState } from '../types/connector';
 
 interface DiscoverViewProps {
   jobs: Job[];
@@ -34,6 +40,7 @@ interface DiscoverViewProps {
 
 export type QuickFilter =
   | 'all'
+  | 'last_scan'
   | 'new_today'
   | '24h'
   | '7d'
@@ -68,10 +75,53 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
+  // Daily Discovery & Scheduler State
+  const [scheduler, setScheduler] = useState<(SchedulerState & {
+    isRunning: boolean;
+    formattedNextRunIst: string;
+    formattedLastRunIst: string;
+    newJobsInLatestScan?: number;
+    totalActiveSources?: number;
+    successfulSourcesCount?: number;
+    failedSourcesCount?: number;
+  }) | null>(null);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryFeedback, setDiscoveryFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSchedulerStatus();
+  }, []);
+
+  const loadSchedulerStatus = async () => {
+    try {
+      const config = await api.getSchedulerConfig();
+      setScheduler(config as any);
+    } catch (err) {
+      console.warn('Could not load scheduler config:', err);
+    }
+  };
+
+  const handleRunDiscoveryNow = async () => {
+    setIsDiscovering(true);
+    setDiscoveryFeedback(null);
+    try {
+      const res = await api.runDiscoveryNow();
+      setScheduler(res.config as any);
+      setDiscoveryFeedback(`Discovered ${res.run.jobsAdded} new openings (${res.run.duplicatesFiltered} duplicates verified).`);
+      await onRefresh();
+      setTimeout(() => setDiscoveryFeedback(null), 6000);
+    } catch (err: any) {
+      setDiscoveryFeedback(`Discovery error: ${err.message || 'Run failed'}`);
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
+
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
       await onRefresh();
+      await loadSchedulerStatus();
     } finally {
       setIsRefreshing(false);
     }
@@ -106,7 +156,18 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     let result = jobs.filter((j) => !j.isDismissed);
 
     // Quick filter chips
-    if (quickFilter === 'new_today') {
+    if (quickFilter === 'last_scan') {
+      const lastRunMs = scheduler?.lastRunAt ? new Date(scheduler.lastRunAt).getTime() : 0;
+      if (lastRunMs > 0) {
+        result = result.filter(
+          (j) =>
+            (j.firstSeenAt && new Date(j.firstSeenAt).getTime() >= lastRunMs - 5 * 60 * 1000) ||
+            (j.lastSeenAt && new Date(j.lastSeenAt).getTime() >= lastRunMs - 5 * 60 * 1000 && (j as any).isUpdated)
+        );
+      } else {
+        result = result.filter((j) => isTodayIst(j.firstSeenAt || j.datePosted));
+      }
+    } else if (quickFilter === 'new_today') {
       result = result.filter((j) => isTodayIst(j.firstSeenAt || j.datePosted));
     } else if (quickFilter === '24h') {
       result = result.filter((j) => isWithinHours(j.firstSeenAt || j.datePosted, 24));
@@ -174,7 +235,26 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
             j.fresherStatus === 'Fresher' ||
             j.experienceLevel === 'Entry' ||
             j.experienceLevel === 'Intern' ||
-            (j.minExpYears !== undefined && j.minExpYears <= 2)
+            (j.minExpYears !== undefined && j.minExpYears <= 1)
+        );
+      } else if (selectedExperience === 'junior') {
+        result = result.filter(
+          (j) =>
+            (j.minExpYears !== undefined && j.minExpYears >= 1 && j.minExpYears <= 3) ||
+            j.experienceLevel === 'Entry'
+        );
+      } else if (selectedExperience === 'mid') {
+        result = result.filter(
+          (j) =>
+            (j.minExpYears !== undefined && j.minExpYears >= 3 && j.minExpYears <= 5) ||
+            j.experienceLevel === 'Mid'
+        );
+      } else if (selectedExperience === 'senior') {
+        result = result.filter(
+          (j) =>
+            (j.minExpYears !== undefined && j.minExpYears >= 5) ||
+            j.experienceLevel === 'Senior' ||
+            j.experienceLevel === 'Lead'
         );
       } else if (selectedExperience === 'experienced') {
         result = result.filter(
@@ -220,10 +300,30 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         return timeB - timeA;
       });
     } else {
-      // Relevance: hybrid score + recency
+      // Relevance: personalized match score + preference bonus + recency
+      const prefRolesLower = (candidate.preferredRoles || []).map((r) => r.toLowerCase());
+      const prefLocsLower = (candidate.preferredLocations || []).map((l) => l.toLowerCase());
+
       result.sort((a, b) => {
-        const scoreA = (a.matchResult?.overallScore || 0) + (a.isStartup ? 4 : 0);
-        const scoreB = (b.matchResult?.overallScore || 0) + (b.isStartup ? 4 : 0);
+        let scoreA = (a.matchResult?.overallScore || 0) + (a.isStartup ? 2 : 0);
+        let scoreB = (b.matchResult?.overallScore || 0) + (b.isStartup ? 2 : 0);
+
+        // Boost newly discovered today / since last scan
+        if (isTodayIst(a.firstSeenAt)) scoreA += 4;
+        if (isTodayIst(b.firstSeenAt)) scoreB += 4;
+
+        // Boost candidate preferred roles
+        const titleA = a.title.toLowerCase();
+        const titleB = b.title.toLowerCase();
+        if (prefRolesLower.some((r) => titleA.includes(r))) scoreA += 3;
+        if (prefRolesLower.some((r) => titleB.includes(r))) scoreB += 3;
+
+        // Boost candidate preferred locations
+        const locA = a.location.toLowerCase();
+        const locB = b.location.toLowerCase();
+        if (prefLocsLower.some((l) => locA.includes(l.split(' ')[0]))) scoreA += 2;
+        if (prefLocsLower.some((l) => locB.includes(l.split(' ')[0]))) scoreB += 2;
+
         return scoreB - scoreA;
       });
     }
@@ -240,6 +340,8 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     minMatchScore,
     disclosedSalaryOnly,
     sortBy,
+    scheduler,
+    candidate,
   ]);
 
   // Pagination calculation
@@ -290,6 +392,63 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Daily Discovery Status Strip */}
+      <div className="p-3 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-600 dark:text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+            <span>
+              Last Scan: <strong className="text-slate-800 dark:text-slate-200">{scheduler?.formattedLastRunIst || 'Completed today'}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>
+              Next Scheduled: <strong className="text-slate-800 dark:text-slate-200">{scheduler?.formattedNextRunIst || 'Tomorrow at 07:00 IST'}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>
+              Latest Run: <strong className="text-emerald-600 dark:text-emerald-400">+{scheduler?.newJobsInLatestScan ?? 0} new openings</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <span>
+              Sources: <strong className="text-slate-800 dark:text-slate-200">{scheduler?.successfulSourcesCount ?? scheduler?.totalActiveSources ?? 24} operational</strong>
+              {scheduler?.failedSourcesCount ? (
+                <span className="text-amber-600 dark:text-amber-400"> ({scheduler.failedSourcesCount} errors)</span>
+              ) : null}
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleRunDiscoveryNow}
+          disabled={isDiscovering || isRefreshing || isLoading}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-500 rounded-lg transition-colors shadow-xs disabled:opacity-50 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
+          <span>{isDiscovering ? 'Scanning Sources...' : 'Run Discovery Now'}</span>
+        </button>
+      </div>
+
+      {discoveryFeedback && (
+        <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>{discoveryFeedback}</span>
+          </div>
+          <button onClick={() => setDiscoveryFeedback(null)} className="text-emerald-500 hover:text-emerald-700">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Search Input & Quick Filter Controls */}
       <div className="space-y-2.5">
@@ -352,6 +511,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
           {[
             { id: 'all', label: 'All Jobs' },
+            { id: 'last_scan', label: 'New Since Last Scan' },
             { id: 'new_today', label: 'New Today' },
             { id: '24h', label: 'Last 24 Hours' },
             { id: '7d', label: 'Last 7 Days' },
@@ -438,7 +598,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
             {/* Experience Level */}
             <div>
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Experience
+                Experience Range
               </label>
               <select
                 value={selectedExperience}
@@ -449,7 +609,10 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                 className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md text-slate-800 dark:text-slate-200"
               >
                 <option value="all">All Levels</option>
-                <option value="fresher">Fresher (0–2 yrs)</option>
+                <option value="fresher">Fresher (0–1 yr)</option>
+                <option value="junior">Junior (1–3 yrs)</option>
+                <option value="mid">Mid-Level (3–5 yrs)</option>
+                <option value="senior">Senior (5+ yrs)</option>
                 <option value="experienced">Experienced (3+ yrs)</option>
               </select>
             </div>

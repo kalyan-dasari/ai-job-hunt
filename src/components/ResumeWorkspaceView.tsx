@@ -21,6 +21,8 @@ import {
   Sparkles,
   ChevronDown,
   X,
+  MapPin,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { CandidateProfile, WorkExperience, EducationItem, ProjectItem, ResumeVersion } from '../types/candidate';
 import { api } from '../api/client';
@@ -62,6 +64,44 @@ export const ResumeWorkspaceView: React.FC<ResumeWorkspaceViewProps> = ({
   // Skill entry
   const [newSkillText, setNewSkillText] = useState('');
   const [newSkillCategory, setNewSkillCategory] = useState<'languages' | 'frameworks' | 'cloudDevops' | 'tools'>('languages');
+
+  // Role & Location entry
+  const [newRoleText, setNewRoleText] = useState('');
+  const [newLocationText, setNewLocationText] = useState('');
+
+  const handleAddRole = (roleToAdd?: string) => {
+    const role = (roleToAdd || newRoleText).trim();
+    if (!role) return;
+    const current = formData.preferredRoles || [];
+    if (!current.includes(role)) {
+      setFormData({ ...formData, preferredRoles: [...current, role] });
+    }
+    setNewRoleText('');
+  };
+
+  const handleRemoveRole = (role: string) => {
+    setFormData({
+      ...formData,
+      preferredRoles: (formData.preferredRoles || []).filter((r) => r !== role),
+    });
+  };
+
+  const handleAddLocation = (locToAdd?: string) => {
+    const loc = (locToAdd || newLocationText).trim();
+    if (!loc) return;
+    const current = formData.preferredLocations || [];
+    if (!current.includes(loc)) {
+      setFormData({ ...formData, preferredLocations: [...current, loc] });
+    }
+    setNewLocationText('');
+  };
+
+  const handleRemoveLocation = (loc: string) => {
+    setFormData({
+      ...formData,
+      preferredLocations: (formData.preferredLocations || []).filter((l) => l !== loc),
+    });
+  };
 
   useEffect(() => {
     setFormData(profile);
@@ -1060,6 +1100,244 @@ export const ResumeWorkspaceView: React.FC<ResumeWorkspaceViewProps> = ({
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Section: Target Job & Experience Preferences */}
+          <div className="p-4 bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  Target Job & Experience Preferences
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Directly personalizes match scores & feed ranking
+              </span>
+            </div>
+
+            {/* Preferred Roles */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                Preferred Roles & Job Titles
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {(formData.preferredRoles || []).map((role) => (
+                  <span
+                    key={role}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60"
+                  >
+                    <span>{role}</span>
+                    <button
+                      onClick={() => handleRemoveRole(role)}
+                      className="text-sky-400 hover:text-sky-600 dark:hover:text-sky-200"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newRoleText}
+                  onChange={(e) => setNewRoleText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddRole();
+                    }
+                  }}
+                  placeholder="Type a target role (e.g. Python Developer, Full Stack) and press Enter..."
+                  className="flex-1 p-2 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                />
+                <button
+                  onClick={() => handleAddRole()}
+                  className="px-3 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 rounded-lg"
+                >
+                  Add Role
+                </button>
+              </div>
+
+              {/* Suggestions */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-slate-500">
+                <span className="font-medium">Suggestions:</span>
+                {[
+                  'Python Developer',
+                  'Backend Developer',
+                  'Full Stack Developer',
+                  'React Developer',
+                  'AI / ML Engineer',
+                  'Software Developer Intern',
+                  'Graduate Engineer Trainee',
+                ].map((sug) => (
+                  <button
+                    key={sug}
+                    onClick={() => handleAddRole(sug)}
+                    className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    + {sug}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Preferred Locations */}
+            <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                <span>Preferred Locations</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {(formData.preferredLocations || []).map((loc) => (
+                  <span
+                    key={loc}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
+                  >
+                    <span>{loc}</span>
+                    <button
+                      onClick={() => handleRemoveLocation(loc)}
+                      className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newLocationText}
+                  onChange={(e) => setNewLocationText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddLocation();
+                    }
+                  }}
+                  placeholder="Add target location (e.g. Hyderabad, Pune, Remote India)..."
+                  className="flex-1 p-2 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                />
+                <button
+                  onClick={() => handleAddLocation()}
+                  className="px-3 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 rounded-lg"
+                >
+                  Add Location
+                </button>
+              </div>
+
+              {/* Suggestions */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-slate-500">
+                <span className="font-medium">Standard Hubs:</span>
+                {['Bengaluru', 'Hyderabad', 'Pune', 'Chennai', 'Remote India', 'Delhi NCR', 'Mumbai'].map(
+                  (city) => (
+                    <button
+                      key={city}
+                      onClick={() => handleAddLocation(city)}
+                      className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      + {city}
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* Target Experience Level */}
+            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-slate-500" />
+                <span>Target Experience Level & Range</span>
+              </label>
+
+              {/* Presets */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { label: 'Fresher / Entry (0–1 yr)', min: 0, max: 1 },
+                  { label: 'Junior (1–3 yrs)', min: 1, max: 3 },
+                  { label: 'Mid-Level (3–5 yrs)', min: 3, max: 5 },
+                  { label: 'Senior (5+ yrs)', min: 5, max: 10 },
+                ].map((preset) => {
+                  const isSelected =
+                    formData.minExperienceYears === preset.min &&
+                    formData.maxExperienceYears === preset.max;
+                  return (
+                    <button
+                      key={preset.label}
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          minExperienceYears: preset.min,
+                          maxExperienceYears: preset.max,
+                        })
+                      }
+                      className={`p-2 rounded-lg text-xs font-medium border text-left transition-colors ${
+                        isSelected
+                          ? 'bg-slate-900 text-white dark:bg-sky-600 border-slate-900 dark:border-sky-600'
+                          : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Explicit numeric inputs */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                    Min Experience (Years)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="30"
+                    value={formData.minExperienceYears ?? 0}
+                    onChange={(e) =>
+                      setFormData({ ...formData, minExperienceYears: Number(e.target.value) })
+                    }
+                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                    Max Experience (Years)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="30"
+                    value={formData.maxExperienceYears ?? 2}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maxExperienceYears: Number(e.target.value) })
+                    }
+                    className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Save & Recalculate Trigger */}
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Saving updates profile in SQLite and recalculates matches across all discovered jobs.
+              </p>
+              <button
+                onClick={handleSaveProfile}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-500 rounded-lg transition-colors shadow-xs disabled:opacity-50"
+              >
+                {saveSuccess ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>{isSaving ? 'Recalculating...' : saveSuccess ? 'Profile Saved & Matched!' : 'Save Preferences'}</span>
+              </button>
             </div>
           </div>
         </div>

@@ -23,6 +23,7 @@ import {
   jobSourcesRepository,
   apiUsageRepository,
   companySourcesRepository,
+  schedulerRepository,
   discoveryAttemptsRepository,
 } from './server/database.ts';
 import { sourceRegistry } from './server/job-sources/registry.ts';
@@ -33,6 +34,7 @@ import { careerPageCrawler } from './server/job-sources/discovery/crawler.ts';
 import { getAllAtsAdapters, getAtsAdapter } from './server/job-sources/ats/index.ts';
 import { classifyDetailedLocation } from './server/job-sources/normalizer.ts';
 import { isTodayIst, isWithinHours, isWithinDays } from './server/temporal.ts';
+import { parseResumeLocally } from './server/local-resume-parser.ts';
 
 dotenv.config();
 
@@ -399,52 +401,7 @@ ${resumeText}`;
 
     // 4. Deterministic Local Parsing Fallback
     if (!parsedData || !parsedData.skills || parsedData.skills.length === 0) {
-      const detectedSkills: string[] = [];
-      const commonTech = [
-        'JavaScript', 'TypeScript', 'React', 'React.js', 'Next.js', 'Vue.js', 'Angular',
-        'Node.js', 'Express', 'Express.js', 'Python', 'Django', 'FastAPI', 'Flask',
-        'Java', 'Spring Boot', 'Kotlin', 'Go', 'Golang', 'Rust', 'C++', 'C#', '.NET',
-        'PostgreSQL', 'Postgres', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'DynamoDB',
-        'Docker', 'Kubernetes', 'AWS', 'Amazon Web Services', 'Azure', 'GCP', 'Google Cloud',
-        'Terraform', 'CI/CD', 'Git', 'GitHub Actions', 'REST APIs', 'GraphQL', 'Tailwind',
-        'TailwindCSS', 'HTML5', 'CSS3', 'Linux', 'Microservices', 'PyTorch', 'TensorFlow',
-      ];
-
-      commonTech.forEach((tech) => {
-        const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(?:^|[^a-zA-Z0-9_#+])${escaped}(?:$|[^a-zA-Z0-9_#+])`, 'i');
-        if (regex.test(resumeText)) {
-          detectedSkills.push(tech);
-        }
-      });
-
-      // Extract basic contact patterns
-      const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-      const phoneMatch = resumeText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-      const lines = resumeText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
-      const inferredName = lines.length > 0 && lines[0].length < 40 ? lines[0] : 'Candidate';
-
-      parsedData = {
-        name: inferredName,
-        email: emailMatch ? emailMatch[0] : '',
-        phone: phoneMatch ? phoneMatch[0] : '',
-        location: '',
-        headline: detectedSkills.length > 0 ? `Software Engineer (${detectedSkills.slice(0, 3).join(', ')})` : 'Software Professional',
-        summary: lines.slice(0, 3).join(' '),
-        skills: detectedSkills,
-        skillCategories: {
-          languages: detectedSkills.filter((s) => ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#'].includes(s)),
-          frameworks: detectedSkills.filter((s) => ['React', 'Next.js', 'Vue.js', 'Node.js', 'Express', 'Django', 'FastAPI', 'Spring Boot'].includes(s)),
-          cloudDevops: detectedSkills.filter((s) => ['AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'CI/CD', 'Terraform'].includes(s)),
-          tools: detectedSkills.filter((s) => ['Git', 'GitHub Actions', 'PostgreSQL', 'MongoDB', 'Redis', 'Linux'].includes(s)),
-          domainSpecialties: ['Web Engineering', 'Backend Systems'],
-        },
-        experience: [],
-        education: [],
-        projects: [],
-        certifications: [],
-        preferredRoles: [parsedData?.headline || 'Software Engineer'],
-      };
+      parsedData = parseResumeLocally(resumeText);
     }
 
     // 5. Create new ResumeVersion
@@ -496,6 +453,9 @@ ${resumeText}`;
         : currentProfile.projects,
       certifications: parsedData.certifications || currentProfile.certifications,
       preferredRoles: parsedData.preferredRoles || currentProfile.preferredRoles,
+      preferredLocations: parsedData.preferredLocations || currentProfile.preferredLocations,
+      minExperienceYears: parsedData.minExperienceYears !== undefined ? parsedData.minExperienceYears : currentProfile.minExperienceYears,
+      maxExperienceYears: parsedData.maxExperienceYears !== undefined ? parsedData.maxExperienceYears : currentProfile.maxExperienceYears,
       rawResumeText: resumeText,
       activeResumeId: newVersionId,
     };
@@ -651,7 +611,19 @@ app.get('/api/jobs', (req: Request, res: Response) => {
 
     // Timeframe filter
     if (timeframe && typeof timeframe === 'string' && timeframe !== 'all') {
-      if (timeframe === 'today') {
+      if (timeframe === 'last_scan' || timeframe === 'new_since_last_scan') {
+        const schedulerState = schedulerRepository.getState();
+        const lastRunTime = schedulerState.lastRunAt ? new Date(schedulerState.lastRunAt).getTime() : 0;
+        if (lastRunTime > 0) {
+          filtered = filtered.filter(
+            (j) =>
+              (j.firstSeenAt && new Date(j.firstSeenAt).getTime() >= lastRunTime - 5 * 60 * 1000) ||
+              (j.lastSeenAt && new Date(j.lastSeenAt).getTime() >= lastRunTime - 5 * 60 * 1000 && (j as any).isUpdated)
+          );
+        } else {
+          filtered = filtered.filter((j) => isTodayIst(j.firstSeenAt || j.datePosted));
+        }
+      } else if (timeframe === 'today') {
         filtered = filtered.filter((j) => isTodayIst(j.firstSeenAt || j.datePosted));
       } else if (timeframe === '24h') {
         filtered = filtered.filter((j) => isWithinHours(j.firstSeenAt || j.datePosted, 24));
@@ -689,9 +661,41 @@ app.get('/api/jobs', (req: Request, res: Response) => {
       filtered = filtered.filter((j) => j.employmentType.toLowerCase() === employmentType.toLowerCase());
     }
 
-    // Experience Level
+    // Experience Level & Range
     if (experienceLevel && typeof experienceLevel === 'string' && experienceLevel !== 'all') {
-      filtered = filtered.filter((j) => j.experienceLevel.toLowerCase() === experienceLevel.toLowerCase());
+      const expQ = experienceLevel.toLowerCase();
+      if (expQ === 'fresher' || expQ === 'entry') {
+        filtered = filtered.filter(
+          (j) =>
+            j.matchResult?.isFresherEligible ||
+            j.fresherStatus === 'Fresher' ||
+            j.experienceLevel === 'Entry' ||
+            j.experienceLevel === 'Intern' ||
+            (j.minExpYears !== undefined && j.minExpYears <= 2)
+        );
+      } else if (expQ === 'experienced' || expQ === 'mid' || expQ === 'senior') {
+        filtered = filtered.filter(
+          (j) =>
+            j.fresherStatus === 'Experienced' ||
+            (j.minExpYears !== undefined && j.minExpYears >= 3) ||
+            j.experienceLevel.toLowerCase() === expQ
+        );
+      } else {
+        filtered = filtered.filter((j) => j.experienceLevel.toLowerCase() === expQ);
+      }
+    }
+
+    // Explicit Min/Max Experience Range
+    const minExpVal = req.query.minExp ? Number(req.query.minExp) : undefined;
+    const maxExpVal = req.query.maxExp ? Number(req.query.maxExp) : undefined;
+    if (minExpVal !== undefined || maxExpVal !== undefined) {
+      filtered = filtered.filter((j) => {
+        const jMin = j.minExpYears !== undefined ? j.minExpYears : (j.experienceLevel === 'Entry' || j.experienceLevel === 'Intern' ? 0 : 2);
+        const jMax = j.maxExpYears !== undefined ? j.maxExpYears : (jMin + 2);
+        if (minExpVal !== undefined && jMax < minExpVal) return false;
+        if (maxExpVal !== undefined && jMin > maxExpVal) return false;
+        return true;
+      });
     }
 
     // Source

@@ -60,8 +60,11 @@ export function calculateDeterministicMatch(profile: CandidateProfile, job: Job)
     required.length > 0 ? Math.round((matchedSkillsCount / required.length) * 100) : 80;
 
   // 2. Experience Compatibility & Strict Eligibility Evaluation
-  const candidateYears = estimateCandidateExperienceYears(profile);
-  const isFresher = candidateYears <= 1;
+  let candidateYears = estimateCandidateExperienceYears(profile);
+  if (candidateYears === 0 && profile.minExperienceYears !== undefined && profile.minExperienceYears > 0) {
+    candidateYears = profile.minExperienceYears;
+  }
+  const isFresher = candidateYears <= 1 || (profile.maxExperienceYears !== undefined && profile.maxExperienceYears <= 1.5);
 
   // Determine job experience requirement and fresher eligibility
   const minJobExp = job.minExpYears !== undefined
