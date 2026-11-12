@@ -74,7 +74,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-                JobPilot <span className="text-[10px] font-mono text-sky-600 dark:text-sky-400 font-normal">v1.1</span>
+                JobPilot <span className="text-[10px] font-mono text-sky-600 dark:text-sky-400 font-normal">v1.3.0</span>
               </span>
             </div>
           </div>

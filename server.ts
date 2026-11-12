@@ -121,6 +121,7 @@ function hasValidGeminiKey(): boolean {
 // Health endpoints (root /health and /api/health)
 const getHealthResponse = () => ({
   status: 'healthy',
+  version: '1.3.0',
   timestamp: new Date().toISOString(),
   service: 'JobPilot AI Server',
   database: 'SQLite',
