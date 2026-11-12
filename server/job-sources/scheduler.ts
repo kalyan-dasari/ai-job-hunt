@@ -6,6 +6,7 @@ import {
   ingestionRunsRepository,
   activityLogsRepository,
   schedulerRepository,
+  companySourcesRepository,
 } from '../database.ts';
 import { calculateDossierMatch } from '../matching.ts';
 import {
@@ -38,9 +39,30 @@ export class IngestionService {
     return this.schedulerTimer !== null;
   }
 
-  public getConfig(): SchedulerState & { isRunning: boolean; formattedNextRunIst: string; formattedLastRunIst: string; intervalMinutes: number } {
+  public getConfig(): SchedulerState & {
+    isRunning: boolean;
+    formattedNextRunIst: string;
+    formattedLastRunIst: string;
+    intervalMinutes: number;
+    newJobsInLatestScan: number;
+    totalActiveSources: number;
+    successfulSourcesCount: number;
+    failedSourcesCount: number;
+    latestRunId: string | null;
+    latestRunStatus: string | null;
+  } {
     const state = schedulerRepository.getState();
     const intervalHours = state.intervalHours || 24;
+    const recentRuns = ingestionRunsRepository.getRecentRuns(1);
+    const latestRun = recentRuns.length > 0 ? recentRuns[0] : null;
+    const activeCompanies = companySourcesRepository.getAll().filter(
+      (c) => (c.isEnabled ?? true) && c.status !== 'disabled'
+    );
+    const failedSourcesCount = latestRun?.errors ? latestRun.errors.length : 0;
+    const successfulSourcesCount = latestRun
+      ? Math.max(0, latestRun.sourcesChecked.length - failedSourcesCount)
+      : activeCompanies.length;
+
     return {
       ...state,
       intervalHours,
@@ -48,6 +70,12 @@ export class IngestionService {
       isRunning: this.isIngestionRunning,
       formattedNextRunIst: formatIstDateTime(state.nextRunAt),
       formattedLastRunIst: formatIstDateTime(state.lastRunAt),
+      newJobsInLatestScan: latestRun?.jobsAdded || 0,
+      totalActiveSources: activeCompanies.length,
+      successfulSourcesCount,
+      failedSourcesCount,
+      latestRunId: latestRun?.id || null,
+      latestRunStatus: latestRun?.status || null,
     };
   }
 

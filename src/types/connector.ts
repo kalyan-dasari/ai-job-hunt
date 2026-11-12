@@ -68,6 +68,12 @@ export interface SchedulerState {
   lastError?: string;
   catchUpEnabled: boolean;
   updatedAt: string;
+  newJobsInLatestScan?: number;
+  totalActiveSources?: number;
+  successfulSourcesCount?: number;
+  failedSourcesCount?: number;
+  latestRunId?: string | null;
+  latestRunStatus?: string | null;
 }
 
 export interface DailyJobStats {

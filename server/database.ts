@@ -644,6 +644,72 @@ const MIGRATIONS = [
       try { db.exec("ALTER TABLE company_sources ADD COLUMN is_enabled INTEGER DEFAULT 1;"); } catch {}
     },
   },
+  {
+    version: 9,
+    name: '009_source_expansion_and_high_yield_health',
+    up: (db: DatabaseSync) => {
+      const now = new Date().toISOString();
+
+      // 1. Remove test dummy companies
+      db.exec("DELETE FROM company_sources WHERE id LIKE 'comp-test-safety%';");
+
+      // 2. Disable obsolete/migrated company sources without active public ATS boards
+      const disabledIds = [
+        'comp-razorpay', // duplicate slug
+        'comp-groww',
+        'comp-hackerearth',
+        'comp-hasura',
+        'comp-clevertap',
+        'comp-moengage',
+        'comp-urbanpiper',
+        'comp-yellowai',
+        'comp-zepto',
+        'comp-urbancompany',
+        'comp-postman',
+        'comp-browserstack',
+        'comp-shiprocket',
+        'comp-zerodha',
+      ];
+      const disableStmt = db.prepare(`
+        UPDATE company_sources
+        SET is_enabled = 0, status = 'paused', updated_at = ?
+        WHERE id = ?
+      `);
+      for (const id of disabledIds) {
+        disableStmt.run(now, id);
+      }
+
+      // 3. Insert or update 8 verified high-yield expansion companies
+      const HIGH_YIELD_EXPANSION = [
+        { id: 'comp-meesho', name: 'Meesho', website_url: 'https://meesho.com', careers_url: 'https://jobs.lever.co/meesho', ats_provider: 'lever', ats_slug: 'meesho' },
+        { id: 'comp-zeta', name: 'Zeta', website_url: 'https://zeta.tech', careers_url: 'https://jobs.lever.co/zeta', ats_provider: 'lever', ats_slug: 'zeta' },
+        { id: 'comp-pocketfm', name: 'Pocket FM', website_url: 'https://pocketfm.com', careers_url: 'https://jobs.lever.co/pocketfm', ats_provider: 'lever', ats_slug: 'pocketfm' },
+        { id: 'comp-supabase', name: 'Supabase', website_url: 'https://supabase.com', careers_url: 'https://jobs.ashbyhq.com/supabase', ats_provider: 'ashby', ats_slug: 'supabase' },
+        { id: 'comp-gitlab', name: 'GitLab', website_url: 'https://gitlab.com', careers_url: 'https://boards.greenhouse.io/gitlab', ats_provider: 'greenhouse', ats_slug: 'gitlab' },
+        { id: 'comp-elastic', name: 'Elastic', website_url: 'https://elastic.co', careers_url: 'https://boards.greenhouse.io/elastic', ats_provider: 'greenhouse', ats_slug: 'elastic' },
+        { id: 'comp-datadog', name: 'Datadog', website_url: 'https://datadoghq.com', careers_url: 'https://boards.greenhouse.io/datadog', ats_provider: 'greenhouse', ats_slug: 'datadog' },
+        { id: 'comp-thoughtworks', name: 'Thoughtworks', website_url: 'https://thoughtworks.com', careers_url: 'https://boards.greenhouse.io/thoughtworks', ats_provider: 'greenhouse', ats_slug: 'thoughtworks' },
+      ];
+
+      const insertOrUpdateStmt = db.prepare(`
+        INSERT INTO company_sources (id, name, website_url, careers_url, ats_provider, ats_slug, status, crawl_frequency_hours, jobs_count, is_enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 6, 0, 1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          website_url = excluded.website_url,
+          careers_url = excluded.careers_url,
+          ats_provider = excluded.ats_provider,
+          ats_slug = excluded.ats_slug,
+          status = 'active',
+          is_enabled = 1,
+          updated_at = excluded.updated_at
+      `);
+
+      for (const comp of HIGH_YIELD_EXPANSION) {
+        insertOrUpdateStmt.run(comp.id, comp.name, comp.website_url, comp.careers_url, comp.ats_provider, comp.ats_slug, now, now);
+      }
+    },
+  },
 ];
 
 function runMigrations(db: DatabaseSync): void {
